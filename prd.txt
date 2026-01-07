@@ -1,0 +1,605 @@
+# Технічне завдання: "Добрий Сусід" MVP
+**Версія для швидкого старту розробки**
+
+## 🎯 КРИТИЧНИЙ МІНІМУМ (MVP Core)
+Створити веб-платформу для управління ОСББ з трьома основними функціями:
+1. Система входу з ролями
+2. Голосування власників (з урахуванням площі квартир)
+3. Стрічка новин від адміністрації
+
+---
+
+## 🛠 ТЕХНІЧНИЙ СТЕК (зафіксовано)
+
+### Backend
+- **Node.js 18+** + Express.js
+- **PostgreSQL** (база даних)
+- **JWT** для автентифікації
+- **bcrypt** для хешування паролів
+
+### Frontend
+- **React 18** + Vite
+- **Tailwind CSS** (швидка стилізація)
+- **Axios** для API запитів
+- **React Router** для навігації
+
+### Deployment
+- **Render.com** (backend + PostgreSQL)
+- **Vercel** (frontend)
+- Обидва мають безкоштовні плани
+
+---
+
+## 📊 МОДЕЛЬ ДАНИХ
+
+### Таблиця: users
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    phone VARCHAR(13) UNIQUE NOT NULL,  -- +380xxxxxxxxx
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL,          -- 'admin' | 'owner' | 'tenant'
+    apartment_id INTEGER REFERENCES apartments(id),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Таблиця: apartments
+```sql
+CREATE TABLE apartments (
+    id SERIAL PRIMARY KEY,
+    number VARCHAR(10) NOT NULL,        -- "42", "15A"
+    area DECIMAL(6,2) NOT NULL,         -- 65.50 м²
+    balance DECIMAL(10,2) DEFAULT 0,    -- -540.50 грн (борг)
+    osbb_id INTEGER DEFAULT 1           -- для MVP завжди 1
+);
+```
+
+### Таблиця: news
+```sql
+CREATE TABLE news (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    is_important BOOLEAN DEFAULT FALSE,
+    author_id INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Таблиця: votings
+```sql
+CREATE TABLE votings (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    type VARCHAR(20) NOT NULL,          -- 'simple' | 'legal'
+    start_date TIMESTAMP NOT NULL,
+    end_date TIMESTAMP NOT NULL,
+    status VARCHAR(20) DEFAULT 'draft', -- 'draft' | 'active' | 'finished'
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Таблиця: votes
+```sql
+CREATE TABLE votes (
+    id SERIAL PRIMARY KEY,
+    voting_id INTEGER REFERENCES votings(id),
+    user_id INTEGER REFERENCES users(id),
+    choice VARCHAR(20) NOT NULL,        -- 'for' | 'against' | 'abstain'
+    voted_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(voting_id, user_id)          -- один користувач = один голос
+);
+```
+
+### Таблиця: invitation_codes
+```sql
+CREATE TABLE invitation_codes (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(8) UNIQUE NOT NULL,    -- "A4B9K1X2"
+    apartment_id INTEGER REFERENCES apartments(id),
+    role VARCHAR(20) NOT NULL,
+    is_used BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## 🔐 API ENDPOINTS
+
+### Автентифікація
+
+#### `POST /api/auth/activate`
+**Призначення:** Активація акаунту за кодом запрошення
+```json
+// Request
+{
+  "invitation_code": "A4B9K1X2",
+  "password": "SecurePass123",
+  "full_name": "Іван Петренко",
+  "phone": "+380501234567"
+}
+
+// Response 200
+{
+  "token": "jwt_token_here",
+  "user": {
+    "id": 15,
+    "role": "owner",
+    "apartment": { "number": "42", "area": 65.5 }
+  }
+}
+
+// Error 400
+{ "error": "Код недійсний або вже використаний" }
+```
+
+#### `POST /api/auth/login`
+```json
+// Request
+{
+  "phone": "+380501234567",
+  "password": "SecurePass123"
+}
+
+// Response 200
+{
+  "token": "jwt_token_here",
+  "user": { "id": 15, "role": "owner", "full_name": "Іван Петренко" }
+}
+
+// Error 401
+{ "error": "Невірний номер телефону або пароль" }
+```
+
+### Dashboard (для власників)
+
+#### `GET /api/dashboard`
+**Вимагає:** Authorization header з JWT
+```json
+// Response 200
+{
+  "apartment": {
+    "number": "42",
+    "balance": -540.50,      // від'ємний = борг
+    "area": 65.5
+  },
+  "latest_news": [
+    {
+      "id": 5,
+      "title": "Ремонт даху завершено",
+      "content": "Роботи виконані в строк...",
+      "is_important": true,
+      "created_at": "2025-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+### Новини
+
+#### `GET /api/news?page=1&limit=10`
+```json
+// Response 200
+{
+  "news": [
+    { "id": 5, "title": "...", "content": "...", "is_important": true, "created_at": "..." }
+  ],
+  "total": 23,
+  "page": 1
+}
+```
+
+#### `POST /api/news` (тільки admin)
+```json
+// Request
+{
+  "title": "Відключення води",
+  "content": "24 січня з 9:00 до 14:00...",
+  "is_important": true
+}
+
+// Response 201
+{ "id": 6, "title": "Відключення води", ... }
+```
+
+#### `DELETE /api/news/:id` (тільки admin)
+```json
+// Response 200
+{ "message": "Новину видалено" }
+```
+
+### Голосування
+
+#### `GET /api/votings?status=active`
+**Параметри:** `status` = `active` | `finished` | `all`
+```json
+// Response 200
+{
+  "votings": [
+    {
+      "id": 3,
+      "title": "Затвердження кошторису 2025",
+      "description": "Детальний опис...",
+      "type": "legal",         // 'simple' або 'legal'
+      "start_date": "2025-01-20T00:00:00Z",
+      "end_date": "2025-01-27T23:59:59Z",
+      "status": "active",
+      "user_voted": false      // чи проголосував поточний user
+    }
+  ]
+}
+```
+
+#### `GET /api/votings/:id`
+```json
+// Response 200
+{
+  "id": 3,
+  "title": "Затвердження кошторису 2025",
+  "description": "Детальний опис...",
+  "type": "legal",
+  "start_date": "...",
+  "end_date": "...",
+  "status": "active",
+  "results": null,             // null якщо не завершено
+  "user_vote": null            // null або "for"/"against"/"abstain"
+}
+
+// Якщо завершено:
+{
+  ...,
+  "status": "finished",
+  "results": {
+    "for": { "count": 45, "area": 2150.5, "percentage": 55.1 },
+    "against": { "count": 20, "area": 1200.0, "percentage": 30.7 },
+    "abstain": { "count": 10, "area": 553.0, "percentage": 14.2 }
+  }
+}
+```
+
+#### `POST /api/votings` (тільки admin)
+```json
+// Request
+{
+  "title": "Встановлення камер",
+  "description": "Пропонуємо встановити 4 камери...",
+  "type": "simple",            // 'simple' або 'legal'
+  "start_date": "2025-01-25T00:00:00Z",
+  "end_date": "2025-02-01T23:59:59Z"
+}
+
+// Response 201
+{ "id": 4, "title": "Встановлення камер", ... }
+```
+
+#### `POST /api/votings/:id/vote`
+```json
+// Request
+{
+  "choice": "for"              // 'for' | 'against' | 'abstain'
+}
+
+// Response 200
+{ "message": "Ваш голос враховано", "choice": "for" }
+
+// Error 400
+{ "error": "Ви вже проголосували" }
+
+// Error 403
+{ "error": "Голосування ще не почалося" }
+```
+
+#### `GET /api/votings/:id/protocol` (тільки admin)
+**Призначення:** Експорт протоколу у JSON (frontend згенерує PDF)
+```json
+// Response 200
+{
+  "voting": { "title": "...", "type": "legal", "start_date": "...", "end_date": "..." },
+  "results": { "for": {...}, "against": {...}, "abstain": {...} },
+  "votes_detail": [
+    { "apartment": "42", "area": 65.5, "owner": "Іван Петренко", "choice": "for" },
+    { "apartment": "15", "area": 48.0, "owner": "Марія Коваль", "choice": "against" }
+  ]
+}
+```
+
+### Адміністрування (тільки admin)
+
+#### `GET /api/admin/apartments`
+```json
+// Response 200
+{
+  "apartments": [
+    {
+      "id": 1,
+      "number": "42",
+      "area": 65.5,
+      "owner": "Іван Петренко",
+      "phone": "+380501234567",
+      "status": "activated"     // 'not_invited' | 'invited' | 'activated'
+    }
+  ]
+}
+```
+
+#### `POST /api/admin/apartments/import`
+**Призначення:** Масовий імпорт квартир через CSV
+```json
+// Request (FormData)
+{
+  "file": apartments.csv       // apartment_number,total_area,owner_name,phone
+}
+
+// Response 200
+{
+  "imported": 180,
+  "errors": []
+}
+
+// Response 400 (якщо є помилки)
+{
+  "imported": 175,
+  "errors": [
+    { "row": 5, "message": "Площа має бути числом" }
+  ]
+}
+```
+
+#### `POST /api/admin/invitations/generate`
+```json
+// Request
+{
+  "apartment_id": 15,
+  "role": "owner"              // 'owner' або 'tenant'
+}
+
+// Response 201
+{
+  "code": "A4B9K1X2",
+  "apartment": "42",
+  "role": "owner"
+}
+```
+
+#### `POST /api/admin/finances/import`
+**Призначення:** Оновлення балансів через CSV
+```json
+// Request (FormData)
+{
+  "file": balances.csv         // apartment_number,balance
+}
+
+// Response 200
+{ "updated": 180, "updated_at": "2025-01-15T12:00:00Z" }
+```
+
+---
+
+## 🎨 FRONTEND СТРУКТУРА
+
+### Сторінки (Routes)
+
+```
+/activate              -> ActivatePage (публічна)
+/login                 -> LoginPage (публічна)
+
+/dashboard             -> DashboardPage (owner/tenant)
+/news                  -> NewsListPage (всі ролі)
+/news/:id              -> NewsDetailPage (всі ролі)
+/votings               -> VotingsListPage (всі ролі)
+/votings/:id           -> VotingDetailPage (всі ролі)
+
+/admin                 -> AdminDashboard (тільки admin)
+/admin/apartments      -> ApartmentsManagementPage
+/admin/news/create     -> CreateNewsPage
+/admin/votings/create  -> CreateVotingPage
+```
+
+### Ключові компоненти
+
+#### `<PrivateRoute>`
+Перевіряє JWT токен, якщо немає → redirect на `/login`
+
+#### `<RoleGuard requiredRole="admin">`
+Перевіряє роль користувача, якщо не підходить → показує 403
+
+#### `<BalanceWidget>`
+```jsx
+<div className={balance < 0 ? 'text-red-600' : 'text-green-600'}>
+  {balance < 0 ? 'Борг: ' : 'Переплата: '}
+  {Math.abs(balance).toFixed(2)} грн
+  <span className="text-gray-500">Станом на {lastUpdate}</span>
+</div>
+```
+
+#### `<VotingCard>`
+Відображає картку голосування зі статусом:
+- Якщо `status === 'active'` і `user_voted === false` → показати кнопки "ЗА / ПРОТИ / УТРИМАВСЯ"
+- Якщо `status === 'finished'` → показати результати
+
+---
+
+## 🔒 БЕЗПЕКА (критично важливо!)
+
+### Backend Middleware
+
+#### `authMiddleware.js`
+```javascript
+// Перевірка JWT токена
+const jwt = require('jsonwebtoken');
+
+function authenticate(req, res, next) {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Не авторизовано' });
+  
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;  // { id, role, apartment_id }
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Невалідний токен' });
+  }
+}
+```
+
+#### `roleMiddleware.js`
+```javascript
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Недостатньо прав' });
+    }
+    next();
+  };
+}
+```
+
+### Обов'язкові правила
+
+1. **Паролі:** Хешувати через `bcrypt.hash(password, 10)`
+2. **SQL:** Використовувати parameterized queries (никогда не конкатенувати SQL)
+3. **HTTPS:** Обов'язково для production (Render надає автоматично)
+4. **Validation:** Всі input валідувати на backend через `express-validator`
+5. **CORS:** Дозволити тільки Vercel домен frontend
+
+---
+
+## 📋 ПРІОРИТЕТИ РОЗРОБКИ (по тижнях)
+
+### Тиждень 1: Фундамент
+- [ ] Налаштувати PostgreSQL на Render
+- [ ] Створити всі таблиці (міграції)
+- [ ] Реалізувати `/api/auth/login` та `/api/auth/activate`
+- [ ] Frontend: сторінки Login + Activate + PrivateRoute
+
+### Тиждень 2: Dashboard + Новини
+- [ ] API: `/api/dashboard`, `/api/news` (GET, POST, DELETE)
+- [ ] Frontend: DashboardPage, NewsListPage
+- [ ] Admin Panel: створення новин
+
+### Тиждень 3-4: Голосування (CORE!)
+- [ ] API: `/api/votings` (всі endpoints)
+- [ ] Логіка підрахунку голосів (simple vs legal)
+- [ ] Frontend: VotingsListPage, VotingDetailPage
+- [ ] Admin: створення голосування
+
+### Тиждень 5: Адмін-панель
+- [ ] API: `/api/admin/apartments`, `/admin/invitations`
+- [ ] CSV імпорт (apartments + finances)
+- [ ] Frontend: ApartmentsManagementPage
+
+### Тиждень 6: Тестування
+- [ ] Manual testing всіх сценаріїв
+- [ ] Виправлення багів
+- [ ] Deployment на Render + Vercel
+
+---
+
+## 🚀 ШВИДКИЙ СТАРТ ДЛЯ ШІ-АГЕНТА
+
+### Крок 1: Backend skeleton
+```bash
+mkdir osbb-backend && cd osbb-backend
+npm init -y
+npm install express pg bcrypt jsonwebtoken cors dotenv express-validator
+npm install --save-dev nodemon
+
+# Створити структуру:
+# /src
+#   /routes
+#     auth.js, news.js, votings.js, admin.js
+#   /middleware
+#     auth.js, role.js
+#   /db
+#     schema.sql, connection.js
+#   server.js
+```
+
+### Крок 2: Frontend skeleton
+```bash
+npm create vite@latest osbb-frontend -- --template react
+cd osbb-frontend
+npm install react-router-dom axios
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+
+# Створити структуру:
+# /src
+#   /pages
+#   /components
+#   /services
+#     api.js (axios instance)
+#   /contexts
+#     AuthContext.jsx
+```
+
+### Крок 3: База даних
+1. Створити PostgreSQL на Render.com
+2. Виконати `schema.sql` з усіма таблицями
+3. Додати тестові дані:
+```sql
+-- Тестовий адмін
+INSERT INTO apartments (number, area) VALUES ('ADMIN', 0);
+INSERT INTO users (phone, password_hash, full_name, role, apartment_id) 
+VALUES ('+380500000000', '$2b$10$...', 'Адмін Адмінов', 'admin', 1);
+
+-- Тестові квартири
+INSERT INTO apartments (number, area, balance) VALUES 
+('42', 65.5, -540.50),
+('15', 48.0, 120.00);
+```
+
+---
+
+## ✅ DEFINITION OF DONE
+
+Функція вважається готовою, коли:
+1. ✅ API endpoint працює і повертає правильні дані
+2. ✅ Frontend коректно відображає дані
+3. ✅ Перевірені права доступу (owner не може зайти в admin panel)
+4. ✅ Немає console.error в браузері
+5. ✅ Код залитий на GitHub
+
+---
+
+## 🎯 MVP SUCCESS CRITERIA
+
+**Продукт готовий до демо, якщо:**
+
+1. Адмін може:
+   - Імпортувати 10 квартир через CSV
+   - Згенерувати код запрошення
+   - Створити голосування типу "legal"
+   - Створити новину
+
+2. Власник може:
+   - Активувати акаунт за кодом
+   - Увійти в систему
+   - Побачити свій баланс
+   - Проголосувати (тільки один раз)
+   - Побачити результати завершеного голосування
+
+3. Система коректно:
+   - Рахує голоси з урахуванням площі (для legal)
+   - Блокує повторне голосування
+   - Не дає власнику доступ до admin panel
+
+---
+
+## 📞 ЩО РОБИТИ, ЯКЩО ЗАСТРЯГ
+
+1. **База не підключається?** Перевір DATABASE_URL в `.env`
+2. **JWT не працює?** Перевір JWT_SECRET і expiration time
+3. **CORS помилки?** Додай Vercel домен у `cors({ origin: '...' })`
+4. **CSV парсинг?** Використай бібліотеку `csv-parser`
+
+---
+
+**Час на MVP: 5-6 тижнів при 3-4 годинах роботи на день**
+
+Починай з Backend + База (тиждень 1), потім паралельно Frontend + API integration.
