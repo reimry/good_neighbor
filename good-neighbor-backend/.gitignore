@@ -15,6 +15,15 @@ pids
 build/
 dist/
 .out/
-.DS_StoreThumbs.db
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
+
+# Runtime uploads (protocol PDFs and other user uploads)
+uploads/
+
+# Local dev artifacts
+.env.test
+
+# Note: .env.example should be committed (do NOT ignore it)

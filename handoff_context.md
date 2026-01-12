@@ -115,7 +115,7 @@ Running the Project:
   ```bash
   cd good-neighbor-frontend
   npm run dev
-  # Runs on http://localhost:5173
+  # Runs on http://5173
   ```
 - Internal Panel (SuperAdmin):
   ```bash
@@ -124,6 +124,15 @@ Running the Project:
   npm run dev
   # Runs on http://localhost:5174
   ```
+
+Repository & Gitignore (Important):
+- A new `QUICK_START.md` is available at repository root with step-by-step setup commands (DB init, env, and how to run services).
+- Keep secret files and runtime uploads out of Git:
+  - **Do not commit**: `.env`, `.env.*`, `good-neighbor-backend/uploads/`, `node_modules/`, and any local editor config.
+  - **Commit**: `.env.example` (shows required environment variables), `package-lock.json`/`yarn.lock` (lockfiles), and all code and SQL migration files.
+- If you move or add sample files used in local development, add them to `.gitignore` to avoid leaking secrets or large assets.
+
+(See `QUICK_START.md` for precise install commands and environment variable guidance.)
 
 Dev Scripts (good-neighbor-backend/dev-scripts/):
 - `test-db.js`: Debug database connection.

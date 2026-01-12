@@ -1,1 +1,41 @@
+# Project-wide ignores
+
+# Node deps
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Build and artifacts
+dist/
+build/
+.out/
+coverage/
+
+# Runtime uploads and generated files
+good-neighbor-backend/uploads/
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Keep notes out of the repo (kept historically)
 notes.txt
+
+# Do NOT ignore lockfiles (package-lock.json / yarn.lock)
+# They should be committed to ensure deterministic installs
+
