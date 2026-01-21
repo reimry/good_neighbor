@@ -16,13 +16,20 @@ try {
 }
 
 // Validation rules
+// Support both login_id (for superadmins) and phone/email (for regular users)
 const loginValidation = [
-  body('phone').notEmpty().withMessage('Телефон обов’язковий'),
-  body('password').notEmpty().withMessage('Пароль обов’язковий')
+  body('password').notEmpty().withMessage('Пароль обов\'язковий'),
+  body().custom((value) => {
+    // At least one of login_id, phone, or email must be provided
+    if (!value.login_id && !value.phone && !value.email) {
+      throw new Error('Потрібно вказати ID користувача, телефон або email');
+    }
+    return true;
+  })
 ];
 
 const activateValidation = [
-  body('invitation_code').notEmpty().withMessage('Код запрошення обов’язковий'),
+  body('invitation_code').notEmpty().withMessage('Код запрошення обов\'язковий'),
   body('password').isLength({ min: 6 }).withMessage('Пароль має бути мінімум 6 символів'),
   body('full_name').notEmpty().withMessage('ПІБ обов’язкове'),
   body('phone').notEmpty().withMessage('Телефон обов’язковий')
@@ -50,21 +57,57 @@ router.post('/login', loginValidation, async (req, res) => {
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const { phone, password } = req.body;
+  const { login_id, phone, email, password } = req.body;
 
   try {
-    // Support both phone and email login
-    const isEmail = phone.includes('@');
-    const query = isEmail 
-      ? 'SELECT * FROM users WHERE email = $1'
-      : 'SELECT * FROM users WHERE phone = $1';
-    const result = await db.query(query, [phone]);
-    const user = result.rows[0];
+    let user = null;
+    let identifier = null;
+
+    // Determine login method based on provided credentials
+    // Architectural separation:
+    // - SuperAdmin users: login with login_id (no phone/email)
+    // - Regular users: login with phone or email (no login_id)
+    // 
+    // Backward compatibility: If login_id is provided, check if it's a phone/email pattern
+    // and route accordingly, otherwise check login_id column
+    
+    if (login_id) {
+      // Check if login_id looks like a phone number or email
+      const isPhonePattern = /^\+380\d{9}$/.test(login_id);
+      const isEmailPattern = login_id.includes('@');
+      
+      if (isPhonePattern) {
+        // Treat as phone number (regular user)
+        const result = await db.query('SELECT * FROM users WHERE phone = $1', [login_id]);
+        user = result.rows[0];
+        identifier = login_id;
+      } else if (isEmailPattern) {
+        // Treat as email (regular user)
+        const result = await db.query('SELECT * FROM users WHERE email = $1', [login_id]);
+        user = result.rows[0];
+        identifier = login_id;
+      } else {
+        // Treat as login_id (superadmin)
+        const result = await db.query('SELECT * FROM users WHERE login_id = $1', [login_id]);
+        user = result.rows[0];
+        identifier = login_id;
+      }
+    } else if (phone) {
+      // Regular user login: use phone
+      const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
+      user = result.rows[0];
+      identifier = phone;
+    } else if (email) {
+      // Regular user login: use email
+      const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+      user = result.rows[0];
+      identifier = email;
+    }
 
     if (!user) {
       // Log failed login attempt
-      await logAuth.loginFailed(phone, 'User not found', req);
-      return res.status(401).json({ error: 'Невірний номер телефону або пароль' });
+      await logAuth.loginFailed(identifier || 'unknown', 'User not found', req);
+      return res.status(401).json({ error: 'Невірні дані для входу або пароль' });
     }
 
     // Support both bcrypt and Argon2 password hashes
@@ -121,8 +164,8 @@ router.post('/login', loginValidation, async (req, res) => {
     
     if (!isValid) {
       // Log failed login attempt
-      await logAuth.loginFailed(phone, 'Invalid password', req);
-      return res.status(401).json({ error: 'Невірний номер телефону або пароль' });
+      await logAuth.loginFailed(identifier || 'unknown', 'Invalid password', req);
+      return res.status(401).json({ error: 'Невірні дані для входу або пароль' });
     }
 
     const token = generateToken(user);

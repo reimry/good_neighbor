@@ -64,7 +64,7 @@ const ServicesPage = () => {
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
           <Link to="/dashboard" className="text-gray-400 hover:text-gray-600">
-            ← Назада
+            ← Назад
           </Link>
           <Logo type="acronym" className="h-10" />
           <h1 className="text-lg font-bold text-gray-900 ml-2">Послуги та платежі</h1>

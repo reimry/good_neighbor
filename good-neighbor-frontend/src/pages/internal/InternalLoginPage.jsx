@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useInternalAuth } from '../../contexts/InternalAuthContext';
 
-export default function LoginPage() {
+export default function InternalLoginPage() {
   const [login_id, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login } = useInternalAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -18,7 +18,7 @@ export default function LoginPage() {
     const result = await login(login_id, password);
     
     if (result.success) {
-      navigate('/dashboard');
+      navigate('/internal/dashboard');
     } else {
       setError(result.error);
     }
@@ -29,11 +29,11 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-50">
       <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h1 className="text-3xl font-bold text-center mb-6 text-primary-500">
+        <h1 className="text-3xl font-bold text-center mb-2 text-primary-500">
           Good Neighbor
         </h1>
         <h2 className="text-xl font-semibold text-center mb-6 text-neutral-900">
-          Internal Panel
+          Internal Management System
         </h2>
         
         {error && (
@@ -45,7 +45,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="login_id" className="block text-sm font-medium text-neutral-900 mb-1">
-              ID користувача
+              Login ID
             </label>
             <input
               id="login_id"
@@ -54,13 +54,13 @@ export default function LoginPage() {
               onChange={(e) => setLoginId(e.target.value)}
               required
               className="w-full px-3 py-2 border border-neutral-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Ваш ID користувача"
+              placeholder="Your login ID"
             />
           </div>
 
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-neutral-900 mb-1">
-              Пароль
+              Password
             </label>
             <input
               id="password"
@@ -80,8 +80,13 @@ export default function LoginPage() {
             {loading ? 'Вхід...' : 'Увійти'}
           </button>
         </form>
+
+        <div className="mt-4 text-center">
+          <a href="/" className="text-sm text-primary-500 hover:text-primary-600">
+            ← Повернутися до основного додатку
+          </a>
+        </div>
       </div>
     </div>
   );
 }
-

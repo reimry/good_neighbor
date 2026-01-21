@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import RegistrationsPage from './pages/RegistrationsPage';
 import AuditLogsPage from './pages/AuditLogsPage';
+import DatabaseAdminPage from './pages/DatabaseAdminPage';
 
 function App() {
   return (
@@ -33,6 +34,14 @@ function App() {
             element={
               <PrivateRoute>
                 <AuditLogsPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/database"
+            element={
+              <PrivateRoute>
+                <DatabaseAdminPage />
               </PrivateRoute>
             }
           />

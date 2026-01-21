@@ -78,7 +78,7 @@ const AdminApartmentsPage = () => {
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
           <Link to="/admin" className="text-gray-400 hover:text-gray-600">
-            ← Назада
+            ← Назад
           </Link>
           <Logo type="acronym" className="h-10" />
           <h1 className="text-lg font-bold text-gray-900 ml-2">Управління квартирами</h1>
@@ -137,13 +137,13 @@ const AdminApartmentsPage = () => {
                         <div className="text-sm font-medium text-gray-900">№{apt.number}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{apt.area} м²</div>
+                        <div className="text-sm text-gray-900">{parseFloat(apt.area || 0).toFixed(2)} м²</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className={`text-sm font-medium ${
-                          apt.balance < 0 ? 'text-red-600' : 'text-green-600'
+                          parseFloat(apt.balance || 0) < 0 ? 'text-red-600' : 'text-green-600'
                         }`}>
-                          {apt.balance.toFixed(2)} грн
+                          {parseFloat(apt.balance || 0).toFixed(2)} грн
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

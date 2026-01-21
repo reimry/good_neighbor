@@ -1,10 +1,11 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Logo from '../components/Logo';
 import { useAuth } from '../contexts/AuthContext';
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const adminCards = [
     {
@@ -40,14 +41,16 @@ const AdminDashboard = () => {
       description: 'Всі новини будинку',
       link: '/news',
       icon: '📰',
-      color: 'bg-orange-500'
+      color: 'bg-orange-500',
+      state: { from: '/admin' }
     },
     {
       title: 'Перегляд голосувань',
       description: 'Всі голосування',
       link: '/votings',
       icon: '📊',
-      color: 'bg-teal-500'
+      color: 'bg-teal-500',
+      state: { from: '/admin' }
     }
   ];
 
@@ -94,6 +97,7 @@ const AdminDashboard = () => {
             <Link
               key={index}
               to={card.link}
+              state={card.state}
               className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow group"
             >
               <div className="flex items-start gap-4">

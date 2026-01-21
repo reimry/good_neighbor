@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const VotingCard = ({ voting, onVote }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  
+  const isAdmin = user?.role === 'admin';
 
   const handleVote = async (choice) => {
     setLoading(true);
@@ -45,18 +52,83 @@ const VotingCard = ({ voting, onVote }) => {
       );
   };
 
+  const handleDelete = async () => {
+    if (!confirm('Ви впевнені, що хочете видалити це голосування? Це можна зробити тільки якщо ще немає голосів.')) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.delete(`/votings/${voting.id}`);
+      if (onVote) onVote(); // Refresh list
+    } catch (err) {
+      alert(err.response?.data?.error || 'Помилка видалення голосування');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleClose = async () => {
+    if (!confirm('Завершити голосування? Після завершення воно стане недоступним для голосування.')) {
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.patch(`/votings/${voting.id}/close`);
+      if (onVote) onVote(); // Refresh list
+    } catch (err) {
+      alert(err.response?.data?.error || 'Помилка завершення голосування');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isFinished = voting.status === 'finished';
   const hasVoted = !!voting.user_vote;
+  const canEdit = isAdmin && voting.status === 'draft';
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-6">
       <div className="flex justify-between items-start mb-4">
-        <div>
-            <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full mb-2 ${
-                isFinished ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-800'
-            }`}>
-                {isFinished ? 'Завершено' : 'Активне'}
-            </span>
+        <div className="flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${
+                  isFinished ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-800'
+              }`}>
+                  {isFinished ? 'Завершено' : voting.status === 'draft' ? 'Чернетка' : 'Активне'}
+              </span>
+              {isAdmin && (
+                <div className="flex gap-2">
+                  {canEdit && (
+                    <button
+                      onClick={() => navigate(`/admin/votings/edit/${voting.id}`)}
+                      disabled={loading}
+                      className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      title="Редагувати"
+                    >
+                      ✏️ Редагувати
+                    </button>
+                  )}
+                  {!isFinished && (
+                    <button
+                      onClick={handleClose}
+                      disabled={loading}
+                      className="text-xs text-orange-600 hover:text-orange-800 disabled:opacity-50"
+                      title="Завершити голосування"
+                    >
+                      ✓ Завершити
+                    </button>
+                  )}
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting || isFinished}
+                    className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                    title="Видалити"
+                  >
+                    🗑️ Видалити
+                  </button>
+                </div>
+              )}
+            </div>
             <h3 className="text-lg font-bold text-gray-900 font-heading">{voting.title}</h3>
         </div>
         <div className="text-right">

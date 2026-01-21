@@ -28,11 +28,13 @@ CREATE TABLE apartments (
 -- Users (Користувачі)
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    phone VARCHAR(13) UNIQUE NOT NULL,  -- +380xxxxxxxxx
+    phone VARCHAR(13),                  -- +380xxxxxxxxx (optional, kept for compatibility)
+    login_id VARCHAR(50) UNIQUE NOT NULL,  -- User login ID for authentication
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'owner', 'tenant')),
+    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'owner', 'tenant', 'super_admin')),
     apartment_id INTEGER REFERENCES apartments(id),
+    osbb_id INTEGER,                    -- For super_admin and organization-level admins
     created_at TIMESTAMP DEFAULT NOW()
 );
 

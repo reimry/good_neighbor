@@ -12,30 +12,98 @@ const db = require('../db/connection');
  */
 async function getAdminOSBBId(userId) {
     try {
+        console.log('Getting OSBB ID for admin user:', userId);
+        
         // First, try to get from users.osbb_id (direct link)
         const userResult = await db.query(
-            'SELECT osbb_id FROM users WHERE id = $1 AND role = $2',
-            [userId, 'admin']
-        );
-        
-        if (userResult.rows.length > 0 && userResult.rows[0].osbb_id) {
-            return userResult.rows[0].osbb_id;
-        }
-        
-        // Fallback: Get from registration request
-        const regResult = await db.query(
-            `SELECT osbb_id FROM osbb_registration_requests 
-             WHERE user_id = $1 AND status = 'approved'`,
+            'SELECT osbb_id, role FROM users WHERE id = $1',
             [userId]
         );
         
+        console.log('User query result:', userResult.rows);
+        
+        if (userResult.rows.length > 0) {
+            const user = userResult.rows[0];
+            if (user.role === 'admin' && user.osbb_id) {
+                console.log('Found OSBB ID from users table:', user.osbb_id);
+                return user.osbb_id;
+            }
+        }
+        
+        // Fallback: Get from registration request via user_id or email/phone match
+        // Check if registration_requests has user_id column
+        const user_id_column_check = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'osbb_registration_requests' AND column_name = 'user_id'
+        `);
+        const hasUserIdColumn = user_id_column_check.rows.length > 0;
+        
+        if (hasUserIdColumn) {
+            // Try direct user_id match first
+            const regResultById = await db.query(
+                `SELECT osbb_id FROM osbb_registration_requests 
+                 WHERE user_id = $1 AND status = 'approved'`,
+                [userId]
+            );
+            
+            if (regResultById.rows.length > 0) {
+                console.log('Found OSBB ID from registration (user_id):', regResultById.rows[0].osbb_id);
+                return regResultById.rows[0].osbb_id;
+            }
+        }
+        
+        // Fallback: Get from registration request via email/phone match
+        // Check if email column exists first
+        const emailColumnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' AND column_name = 'email'
+        `);
+        const hasEmailColumn = emailColumnCheck.rows.length > 0;
+        
+        // Get user's email/phone
+        const userQuery = hasEmailColumn
+            ? 'SELECT email, phone FROM users WHERE id = $1'
+            : 'SELECT phone FROM users WHERE id = $1';
+        const userInfo = await db.query(userQuery, [userId]);
+        
+        if (userInfo.rows.length > 0) {
+            const user = userInfo.rows[0];
+            const userEmail = hasEmailColumn ? (user.email || null) : null;
+            const userPhone = user.phone || null;
+            
+            if (userEmail || userPhone) {
+                const regResult = await db.query(
+                    `SELECT osbb_id FROM osbb_registration_requests 
+                     WHERE status = 'approved' 
+                       AND (
+                         ${userEmail ? '(head_email IS NOT NULL AND head_email = $1)' : 'FALSE'}
+                         ${userEmail && userPhone ? ' OR ' : ''}
+                         ${userPhone ? '(head_phone IS NOT NULL AND head_phone = $2)' : 'FALSE'}
+                       )`,
+                    [userEmail, userPhone].filter(v => v !== null)
+                );
+                
+                if (regResult.rows.length > 0) {
+                    console.log('Found OSBB ID from registration (email/phone):', regResult.rows[0].osbb_id);
+                    return regResult.rows[0].osbb_id;
+                }
+            }
+        }
+        
+        console.log('Registration query result:', regResult.rows);
+        
         if (regResult.rows.length > 0) {
+            console.log('Found OSBB ID from registration:', regResult.rows[0].osbb_id);
             return regResult.rows[0].osbb_id;
         }
         
+        console.log('No OSBB ID found for admin user');
         return null;
     } catch (err) {
         console.error('Error getting admin OSBB ID:', err);
+        console.error('Error stack:', err.stack);
         return null;
     }
 }
@@ -84,6 +152,19 @@ async function verifyVotingBelongsToOSBB(votingId, adminUserId) {
             return false;
         }
         
+        // Check if osbb_id column exists
+        const columnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'votings' AND column_name = 'osbb_id'
+        `);
+        const hasOsbbId = columnCheck.rows.length > 0;
+        
+        if (!hasOsbbId) {
+            // If column doesn't exist, allow access (legacy behavior)
+            return true;
+        }
+        
         const result = await db.query(
             'SELECT osbb_id FROM votings WHERE id = $1',
             [votingId]
@@ -107,9 +188,12 @@ async function verifyVotingBelongsToOSBB(votingId, adminUserId) {
  */
 async function getOSBBApartments(adminUserId) {
     try {
+        console.log('Getting apartments for admin user:', adminUserId);
         const adminOSBBId = await getAdminOSBBId(adminUserId);
+        console.log('Admin OSBB ID:', adminOSBBId);
         
         if (!adminOSBBId) {
+            console.log('No OSBB ID found, returning empty array');
             return [];
         }
         
@@ -118,9 +202,11 @@ async function getOSBBApartments(adminUserId) {
             [adminOSBBId]
         );
         
+        console.log('Found', result.rows.length, 'apartments');
         return result.rows;
     } catch (err) {
         console.error('Error getting OSBB apartments:', err);
+        console.error('Error stack:', err.stack);
         return [];
     }
 }

@@ -15,14 +15,56 @@ const { logModeration, logVoting } = require('../services/loggerService');
 // Only shows apartments belonging to admin's OSBB
 router.get('/apartments', authenticate, requireRole('admin'), async (req, res) => {
     try {
+        console.log('Fetching apartments for admin user:', req.user.id);
+        
+        // Check if email column exists
+        const emailCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' AND column_name = 'email'
+        `);
+        const hasEmail = emailCheck.rows.length > 0;
+        console.log('Email column exists:', hasEmail);
+        
         // Get apartments for admin's OSBB only
         const osbbApartments = await getOSBBApartments(req.user.id);
+        console.log('OSBB apartments found:', osbbApartments.length);
         
         if (osbbApartments.length === 0) {
+            console.log('No apartments found for admin OSBB');
             return res.json({ apartments: [] });
         }
         
-        const apartmentIds = osbbApartments.map(apt => apt.id);
+        const apartmentIds = osbbApartments.map(apt => apt.id).filter(id => id != null);
+        console.log('Apartment IDs:', apartmentIds);
+        
+        // Check if apartmentIds array is empty
+        if (!apartmentIds || apartmentIds.length === 0) {
+            console.log('No apartment IDs to query');
+            return res.json({ apartments: [] });
+        }
+        
+        // Ensure all IDs are integers
+        const validApartmentIds = apartmentIds.filter(id => Number.isInteger(parseInt(id)));
+        if (validApartmentIds.length === 0) {
+            console.log('No valid apartment IDs');
+            return res.json({ apartments: [] });
+        }
+        
+        console.log('Querying apartments with IDs:', validApartmentIds);
+        
+        // Check if used_at column exists in invitation_codes
+        const usedAtCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'invitation_codes' AND column_name = 'used_at'
+        `);
+        const hasUsedAt = usedAtCheck.rows.length > 0;
+        console.log('used_at column exists in invitation_codes:', hasUsedAt);
+        
+        const invitationCodesFields = hasUsedAt
+            ? `'code', ic.code, 'role', ic.role, 'is_used', ic.is_used, 'used_at', ic.used_at, 'created_at', ic.created_at`
+            : `'code', ic.code, 'role', ic.role, 'is_used', ic.is_used, 'created_at', ic.created_at`;
         
         const result = await db.query(`
             SELECT 
@@ -33,35 +75,36 @@ router.get('/apartments', authenticate, requireRole('admin'), async (req, res) =
                 u.id as user_id,
                 u.full_name as owner,
                 u.phone,
-                u.email,
+                ${hasEmail ? 'u.email,' : 'NULL as email,'}
                 CASE 
                     WHEN u.id IS NOT NULL THEN 'activated'
                     WHEN EXISTS (SELECT 1 FROM invitation_codes ic WHERE ic.apartment_id = a.id AND ic.is_used = false) THEN 'invited'
                     ELSE 'not_invited'
                 END as status,
-                (
+                COALESCE((
                     SELECT json_agg(
                         json_build_object(
-                            'code', ic.code,
-                            'role', ic.role,
-                            'is_used', ic.is_used,
-                            'used_at', ic.used_at,
-                            'created_at', ic.created_at
+                            ${invitationCodesFields}
                         ) ORDER BY ic.created_at DESC
                     )
                     FROM invitation_codes ic
                     WHERE ic.apartment_id = a.id
-                ) as invitation_codes
+                ), '[]'::json) as invitation_codes
             FROM apartments a
             LEFT JOIN users u ON a.id = u.apartment_id
             WHERE a.id = ANY($1::int[]) AND a.number != 'ADMIN'
             ORDER BY a.number
-        `, [apartmentIds]);
+        `, [validApartmentIds]);
         
+        console.log('Query successful, returning', result.rows.length, 'apartments');
         res.json({ apartments: result.rows });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error fetching apartments:', err);
+        console.error('Error stack:', err.stack);
+        res.status(500).json({ 
+            error: 'Server error: ' + err.message,
+            details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 });
 

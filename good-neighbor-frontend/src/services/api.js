@@ -10,7 +10,12 @@ const api = axios.create({
 // Add a request interceptor to include the token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    // Check if this is an internal route, use internal_token if available
+    const isInternalRoute = config.url?.startsWith('/internal');
+    const token = isInternalRoute 
+      ? localStorage.getItem('internal_token') || localStorage.getItem('token')
+      : localStorage.getItem('token');
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }

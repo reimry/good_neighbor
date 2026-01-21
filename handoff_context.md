@@ -14,8 +14,9 @@ Phase 1-4: Core MVP (Completed)
 - Authentication & Activation:
   - Users activate accounts using Invitation Codes (e.g., OWNER101).
   - JWT-based auth with PrivateRoute protection.
-  - Roles: admin, resident (owner, tenant).
-  - Supports both phone and email login.
+  - Roles: admin, resident (owner, tenant), super_admin.
+  - **Regular users**: Login with phone or email
+  - **SuperAdmins**: Login with login_id
   - Dual password hashing support: bcrypt (legacy) and Argon2 (new registrations).
 
 - Dashboard:
@@ -64,21 +65,28 @@ Phase 7: OSBB Registration System (Completed - Cybersecurity Project Feature)
   - RBAC: All admin routes protected.
   - Server-side validation only (mock data not modifiable by client).
 
-Phase 8: SuperAdmin Panel & Audit Logging System (Completed)
-- Internal Operations System:
-  - Separate frontend application: `good-neighbor-internal-panel` (port 5174)
+Phase 8: SuperAdmin Panel & Audit Logging System (Completed - Updated January 2026)
+- Internal Management System:
+  - **Integrated into main frontend** at `/internal/*` routes (port 5173)
+  - Separate authentication context (`InternalAuthContext`) with `internal_token` storage
   - SuperAdmin role with global access (osbb_id = NULL)
   - Ecosystem-wide management and monitoring
+  - **Note**: Old separate panel (`good-neighbor-internal-panel`) exists but is deprecated
 - Audit Logging:
   - Comprehensive audit trail for all critical actions
   - Automatic data sanitization (passwords, tokens never logged)
   - Tracks: logins, registrations, voting operations, super admin actions
   - Advanced filtering and search capabilities
 - SuperAdmin Features:
-  - Global Dashboard: Statistics across all OSBBs (total OSBBs, users, votings, bills)
-  - OSBB Registration Moderation: Review and approve/reject all registration requests
-  - Audit Log Explorer: Filter by actor, OSBB, action type, date range
+  - Global Dashboard (`/internal/dashboard`): Statistics across all OSBBs
+  - Database Management (`/internal/database`): Full CRUD for users, organizations, apartments
+  - OSBB Registration Moderation (`/internal/registrations`): Review and approve/reject requests
+  - Audit Log Explorer (`/internal/audit-logs`): Filter by actor, OSBB, action type, date range
   - PDF Protocol Viewer: Safe viewing of uploaded registration documents
+- Authentication:
+  - SuperAdmins use `login_id` (not phone/email) for login
+  - Regular users use phone/email for login
+  - Architectural separation: `login_id` nullable (only superadmins have it)
 - Security:
   - All internal routes require `super_admin` role
   - Super admins bypass tenant isolation (osbb_id = NULL)
@@ -137,10 +145,14 @@ Repository & Gitignore (Important):
 Dev Scripts (good-neighbor-backend/dev-scripts/):
 - `test-db.js`: Debug database connection.
 - `check-users.js`: List all users and invitation codes.
+- `check-superadmin.js`: Check superadmin users and their login_id status.
+- `fix-superadmin.js`: Check and diagnose superadmin user issues.
+- `verify-setup.js`: **NEW** - Comprehensive setup verification.
+- `seed-test-data.js`: **NEW** - Comprehensive test data seeding (OSBBs, users, apartments, news, votings).
 - `create-admin.js`: Interactive script to create admin user.
-- `create-super-admin.js`: Create super admin user (for internal panel).
+- `create-super-admin.js`: Create super admin user (for internal system).
 - `test-password.js`: Test password verification for a user.
-- `seed-votings.js`: Add test voting data.
+- `seed-votings.js`: Add test voting data (can use seed-test-data.js instead).
 - `simulate-billing.js`: Simulate monthly bill generation.
 
 ⚠️ Key Technical Notes
@@ -152,6 +164,11 @@ Dev Scripts (good-neighbor-backend/dev-scripts/):
   - New registrations: Argon2id (hashes start with $argon2).
   - Login route automatically detects hash format and uses correct verification.
 - File Uploads: PDF protocols stored in `good-neighbor-backend/uploads/protocols/`.
+- Authentication Architecture:
+  - **Regular users**: Use phone/email for login, `login_id` is NULL
+  - **SuperAdmins**: Use `login_id` for login, phone/email is NULL
+  - `login_id` column is nullable (only superadmins require it)
+  - Migration: `fix-login-id-migration.sql` applied
 
 📊 Database Schema
 Core Tables:
@@ -230,6 +247,16 @@ Internal (SuperAdmin Only):
 - GET /api/internal/audit-logs - Get audit logs with filters
 - GET /api/internal/audit-logs/stats - Get audit log statistics
 
+Database Administration (SuperAdmin Only):
+- GET /api/internal/db/users - List users with filters and pagination
+- GET /api/internal/db/users/:id - Get user details
+- PATCH /api/internal/db/users/:id - Update user
+- DELETE /api/internal/db/users/:id - Delete user
+- GET /api/internal/db/organizations - List OSBB organizations
+- GET /api/internal/db/organizations/:id - Get organization details
+- PATCH /api/internal/db/organizations/:id - Update organization
+- GET /api/internal/db/apartments - List apartments with filters
+
 OSBB Registration:
 - POST /api/register/verify-edrpou - Verify EDRPOU (Step 1)
 - POST /api/register/verify-head - Verify Head identity (Step 2)
@@ -237,8 +264,10 @@ OSBB Registration:
 
 🎭 Frontend Routes
 
+**Main Application** (Port 5173):
+
 Public:
-- /login - Login page
+- /login - Login page (phone/email for regular users)
 - /activate - Activate account with invitation code
 - /register-osbb - OSBB Head registration (3-step form)
 
@@ -256,10 +285,16 @@ Admin Only:
 - /admin/apartments - Manage apartments
 - /admin/registrations - Manage OSBB registrations (OSBB-scoped)
 
-SuperAdmin Only (Internal Panel):
-- /dashboard - Global ecosystem dashboard
-- /registrations - Global OSBB registration moderation
-- /audit-logs - Audit log explorer with advanced filters
+**Internal Management System** (Port 5173, `/internal/*` routes):
+
+SuperAdmin Only:
+- /internal/login - SuperAdmin login (login_id)
+- /internal/dashboard - Global ecosystem dashboard
+- /internal/database - Database management (users, organizations, apartments)
+- /internal/registrations - Global OSBB registration moderation
+- /internal/audit-logs - Audit log explorer with advanced filters
+
+**Note**: Old separate internal panel (`good-neighbor-internal-panel` on port 5174) exists but is deprecated. All functionality is now integrated into main app.
 
 🧪 Mock Registry Data (For Testing)
 
@@ -322,6 +357,17 @@ Completed:
 - ✅ Advanced Voting Security (immutability, OSBB isolation)
 - ✅ Billing Engine (monthly bill generation)
 - ✅ SuperAdmin Panel & Audit Logging System
+- ✅ Internal Management System (integrated into main app)
+- ✅ Database Administration Interface
+- ✅ Authentication Architecture Separation (login_id for superadmins)
+- ✅ Test Data Seeding Script
+
+Current Status (January 2026):
+- ✅ Internal system routes working (`/internal/*`)
+- ✅ Database management interface functional
+- ✅ Test data seeding available
+- ⚠️ Need to populate database with test data
+- ⚠️ Old internal-panel directory can be archived
 
 Future Enhancements:
 - Payment History: Track payment transactions
@@ -361,12 +407,22 @@ Color Theme Not Applied:
 
 ---
 
-**Last Updated**: January 3, 2026  
-**Status**: Production Ready (MVP + OSBB Registration + SuperAdmin Panel)  
-**Version**: 1.0.0  
+**Last Updated**: January 2026  
+**Status**: Production Ready (MVP + OSBB Registration + Internal Management System)  
+**Version**: 1.1.0  
 **All Known Issues**: ✅ Fixed
 
-**Recent Fixes (January 3, 2026)**:
+**Recent Updates (January 2026)**:
+- ✅ Integrated Internal Management System into main frontend (`/internal/*` routes)
+- ✅ Created Database Administration interface (users, organizations, apartments CRUD)
+- ✅ Fixed authentication architecture (login_id for superadmins, phone/email for regular users)
+- ✅ Added comprehensive test data seeding script
+- ✅ Fixed database queries to handle missing email column gracefully
+- ✅ Created RegistrationsPage and AuditLogsPage for internal system
+- ✅ Fixed apartments query GROUP BY clause
+- ✅ Updated API routes for database management
+
+**Previous Fixes (January 3, 2026)**:
 - ✅ PDF protocol authentication in internal panel
 - ✅ Database column name consistency (`protocol_path`)
 - ✅ Missing `updated_at` column added

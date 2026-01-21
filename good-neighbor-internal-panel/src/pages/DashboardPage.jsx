@@ -73,6 +73,12 @@ export default function DashboardPage() {
             >
               Журнал аудиту
             </Link>
+            <Link
+              to="/database"
+              className="border-b-2 border-transparent py-4 px-1 text-sm font-medium text-neutral-700 hover:text-primary-500 hover:border-primary-500"
+            >
+              Управління БД
+            </Link>
           </div>
         </div>
       </nav>

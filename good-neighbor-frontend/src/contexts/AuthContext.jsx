@@ -23,9 +23,21 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  const login = async (phone, password) => {
+  const login = async (phoneOrEmail, password) => {
     try {
-      const response = await api.post('/auth/login', { phone, password });
+      // Determine if input is phone or email
+      const isEmail = phoneOrEmail.includes('@');
+      const isPhone = /^\+380\d{9}$/.test(phoneOrEmail);
+      
+      // Send as login_id for backward compatibility (backend detects phone/email pattern)
+      // Or send explicitly as phone/email
+      const payload = isEmail 
+        ? { email: phoneOrEmail, password }
+        : isPhone
+        ? { phone: phoneOrEmail, password }
+        : { login_id: phoneOrEmail, password }; // Fallback for backward compat
+      
+      const response = await api.post('/auth/login', payload);
       const { token, user } = response.data;
       
       localStorage.setItem('token', token);

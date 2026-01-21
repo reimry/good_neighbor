@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import Logo from '../components/Logo';
 
-const CreateVotingPage = () => {
+const EditVotingPage = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -13,7 +14,29 @@ const CreateVotingPage = () => {
     end_date: ''
   });
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchVoting = async () => {
+      try {
+        const response = await api.get(`/votings/${id}`);
+        const voting = response.data;
+        setFormData({
+          title: voting.title,
+          description: voting.description,
+          type: voting.type,
+          start_date: voting.start_date ? new Date(voting.start_date).toISOString().split('T')[0] : '',
+          end_date: voting.end_date ? new Date(voting.end_date).toISOString().split('T')[0] : ''
+        });
+      } catch (err) {
+        setError(err.response?.data?.error || 'Помилка завантаження голосування');
+      } finally {
+        setFetching(false);
+      }
+    };
+    fetchVoting();
+  }, [id]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -28,15 +51,10 @@ const CreateVotingPage = () => {
       return;
     }
 
-    if (startDate < new Date()) {
-      setError('Дата початку не може бути в минулому');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      await api.post('/votings', {
+      await api.patch(`/votings/${id}`, {
         title: formData.title,
         description: formData.description,
         type: formData.type,
@@ -45,31 +63,19 @@ const CreateVotingPage = () => {
       });
       navigate('/votings');
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка при створенні голосування');
+      setError(err.response?.data?.error || 'Помилка при оновленні голосування');
     } finally {
       setLoading(false);
     }
   };
 
-  // Set default dates (start: today, end: 7 days from now)
-  React.useEffect(() => {
-    const today = new Date();
-    const nextWeek = new Date();
-    nextWeek.setDate(today.getDate() + 7);
-    
-    const formatDate = (date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    setFormData(prev => ({
-      ...prev,
-      start_date: prev.start_date || formatDate(today),
-      end_date: prev.end_date || formatDate(nextWeek)
-    }));
-  }, []);
+  if (fetching) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -79,7 +85,7 @@ const CreateVotingPage = () => {
             ← Назад
           </Link>
           <Logo type="acronym" className="h-10" />
-          <h1 className="text-lg font-bold text-gray-900 ml-2">Створити голосування</h1>
+          <h1 className="text-lg font-bold text-gray-900 ml-2">Редагувати голосування</h1>
         </div>
       </header>
 
@@ -177,7 +183,7 @@ const CreateVotingPage = () => {
               disabled={loading}
               className="flex-1 bg-primary-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {loading ? 'Створення...' : 'Створити голосування'}
+              {loading ? 'Оновлення...' : 'Оновити голосування'}
             </button>
             <button
               type="button"
@@ -193,6 +199,4 @@ const CreateVotingPage = () => {
   );
 };
 
-export default CreateVotingPage;
-
-
+export default EditVotingPage;

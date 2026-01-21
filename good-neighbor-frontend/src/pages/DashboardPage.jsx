@@ -47,9 +47,15 @@ const DashboardPage = () => {
                 </nav>
             </div>
             <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-700 font-medium hidden sm:block">
-                    Кв. {data?.apartment?.number}
-                </span>
+                {user?.role === 'admin' ? (
+                    <span className="text-sm text-gray-700 font-medium hidden sm:block">
+                        Адміністратор
+                    </span>
+                ) : (
+                    <span className="text-sm text-gray-700 font-medium hidden sm:block">
+                        Кв. {data?.apartment?.number || '-'}
+                    </span>
+                )}
                 <Link 
                     to="/profile"
                     className="text-sm text-gray-600 hover:text-primary-600 font-medium"
@@ -82,38 +88,42 @@ const DashboardPage = () => {
                 Вітаємо, {user?.full_name?.split(' ')[0]}!
             </h1>
             <p className="text-gray-500 text-sm">
-                Огляд вашої квартири та новини будинку
+                {user?.role === 'admin' 
+                    ? 'Панель адміністратора ОСББ' 
+                    : 'Огляд вашої квартири та новини будинку'}
             </p>
         </div>
 
         {/* Widgets Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Left Column: Balance & Info */}
-            <div className="space-y-6">
-                <BalanceWidget 
-                    balance={Number(data?.apartment?.balance)} 
-                    lastUpdate={new Date()} // In real app, this comes from backend
-                />
-                
-                <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
-                    <h3 className="text-gray-500 text-sm font-medium uppercase tracking-wider mb-4">
-                         Ваша квартира
-                    </h3>
-                    <div className="space-y-3">
-                        <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">Номер</span>
-                            <span className="font-semibold text-gray-900">{data?.apartment?.number}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">Площа</span>
-                            <span className="font-semibold text-gray-900">{data?.apartment?.area} м²</span>
+            {user?.role !== 'admin' && data?.apartment && (
+                <div className="space-y-6">
+                    <BalanceWidget 
+                        balance={Number(data?.apartment?.balance || 0)} 
+                        lastUpdate={new Date()} // In real app, this comes from backend
+                    />
+                    
+                    <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+                        <h3 className="text-gray-500 text-sm font-medium uppercase tracking-wider mb-4">
+                             Ваша квартира
+                        </h3>
+                        <div className="space-y-3">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-500">Номер</span>
+                                <span className="font-semibold text-gray-900">{data?.apartment?.number || '-'}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-500">Площа</span>
+                                <span className="font-semibold text-gray-900">{data?.apartment?.area ? `${data.apartment.area} м²` : '-'}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* Right Column: News Feed */}
-            <div className="md:col-span-2 space-y-4">
+            <div className={`${user?.role === 'admin' ? 'md:col-span-3' : 'md:col-span-2'} space-y-4`}>
                 <div className="flex justify-between items-center">
                     <h2 className="text-lg font-bold text-gray-900">Останні новини</h2>
                     <Link to="/news" className="text-primary-600 text-sm font-medium hover:text-primary-700">
@@ -124,7 +134,22 @@ const DashboardPage = () => {
                 {data?.latest_news?.length > 0 ? (
                     <div className="space-y-4">
                         {data.latest_news.map(news => (
-                            <NewsCard key={news.id} news={news} />
+                            <NewsCard 
+                                key={news.id} 
+                                news={news} 
+                                onDelete={() => {
+                                    // Refresh news list
+                                    const fetchData = async () => {
+                                        try {
+                                            const response = await api.get('/dashboard');
+                                            setData(response.data);
+                                        } catch (err) {
+                                            console.error('Failed to fetch dashboard', err);
+                                        }
+                                    };
+                                    fetchData();
+                                }}
+                            />
                         ))}
                     </div>
                 ) : (

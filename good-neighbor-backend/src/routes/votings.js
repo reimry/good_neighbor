@@ -35,13 +35,24 @@ router.get('/', authenticate, async (req, res) => {
             osbbId = await getAdminOSBBId(userId);
         }
         
+        // Check if osbb_id column exists
+        const columnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'votings' AND column_name = 'osbb_id'
+        `);
+        const hasOsbbId = columnCheck.rows.length > 0;
+        
         // Filter by OSBB if available, otherwise return empty (tenant isolation)
         let query = 'SELECT * FROM votings';
         const params = [];
         
-        if (osbbId) {
+        if (hasOsbbId && osbbId) {
             query += ' WHERE osbb_id = $1';
             params.push(osbbId);
+        } else if (!hasOsbbId) {
+            // If osbb_id column doesn't exist, return all votings (legacy behavior)
+            // This maintains backward compatibility
         } else {
             // User has no OSBB association - return empty (security: tenant isolation)
             return res.json([]);
@@ -100,17 +111,27 @@ router.get('/:id', authenticate, async (req, res) => {
         }
         const voting = votingResult.rows[0];
         
-        // 2. Verify voting belongs to user's OSBB (tenant isolation)
-        if (userOSBBId && voting.osbb_id !== userOSBBId) {
-            return res.status(403).json({ 
-                error: 'Voting does not belong to your OSBB' 
-            });
-        }
+        // 2. Check if osbb_id column exists
+        const columnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'votings' AND column_name = 'osbb_id'
+        `);
+        const hasOsbbId = columnCheck.rows.length > 0;
         
-        if (!userOSBBId) {
-            return res.status(403).json({ 
-                error: 'You are not associated with an OSBB' 
-            });
+        // 3. Verify voting belongs to user's OSBB (tenant isolation) - only if osbb_id column exists
+        if (hasOsbbId) {
+            if (userOSBBId && voting.osbb_id !== userOSBBId) {
+                return res.status(403).json({ 
+                    error: 'Voting does not belong to your OSBB' 
+                });
+            }
+            
+            if (!userOSBBId) {
+                return res.status(403).json({ 
+                    error: 'You are not associated with an OSBB' 
+                });
+            }
         }
 
         // 3. Check if current user voted
@@ -123,6 +144,9 @@ router.get('/:id', authenticate, async (req, res) => {
         // 4. Calculate Results (if finished or user wants to see "current standing" - usually only if finished)
         let results = null;
         if (voting.status === 'finished') {
+            // Check if osbb_id exists in voting
+            const votingOsbbId = voting.osbb_id || userOSBBId;
+            
             if (voting.type === 'legal') {
                 // Legal: Sum of apartment areas (weighted by area)
                 // Only count apartments from the same OSBB as the voting
@@ -134,14 +158,17 @@ router.get('/:id', authenticate, async (req, res) => {
                     FROM votes v
                     JOIN users u ON v.user_id = u.id
                     JOIN apartments a ON u.apartment_id = a.id
-                    WHERE v.voting_id = $1 AND a.osbb_id = $2
+                    WHERE v.voting_id = $1 ${votingOsbbId ? 'AND a.osbb_id = $2' : ''}
                     GROUP BY v.choice
-                `, [id, voting.osbb_id]);
+                `, votingOsbbId ? [id, votingOsbbId] : [id]);
                 
                 // Get total possible area (sum of all apartments in this OSBB)
+                const totalAreaQuery = votingOsbbId 
+                    ? 'SELECT SUM(area) as total FROM apartments WHERE osbb_id = $1'
+                    : 'SELECT SUM(area) as total FROM apartments';
                 const totalAreaResult = await db.query(
-                    'SELECT SUM(area) as total FROM apartments WHERE osbb_id = $1',
-                    [voting.osbb_id]
+                    totalAreaQuery,
+                    votingOsbbId ? [votingOsbbId] : []
                 );
                 const totalPossibleWeight = parseFloat(totalAreaResult.rows[0]?.total) || 1;
                 
@@ -171,12 +198,20 @@ router.get('/:id', authenticate, async (req, res) => {
                 `, [id]);
                 
                 // Get total users count in this OSBB (only owners/tenants with apartments)
-                const totalUsersResult = await db.query(`
-                    SELECT COUNT(DISTINCT u.id) as count 
-                    FROM users u
-                    JOIN apartments a ON u.apartment_id = a.id
-                    WHERE a.osbb_id = $1 AND u.role IN ('owner', 'tenant')
-                `, [voting.osbb_id]);
+                const votingOsbbId = voting.osbb_id || userOSBBId;
+                const totalUsersQuery = votingOsbbId
+                    ? `SELECT COUNT(DISTINCT u.id) as count 
+                       FROM users u
+                       JOIN apartments a ON u.apartment_id = a.id
+                       WHERE a.osbb_id = $1 AND u.role IN ('owner', 'tenant')`
+                    : `SELECT COUNT(DISTINCT u.id) as count 
+                       FROM users u
+                       JOIN apartments a ON u.apartment_id = a.id
+                       WHERE u.role IN ('owner', 'tenant')`;
+                const totalUsersResult = await db.query(
+                    totalUsersQuery,
+                    votingOsbbId ? [votingOsbbId] : []
+                );
                 
                 const totalPossible = parseInt(totalUsersResult.rows[0]?.count) || 1;
                 const totalVoted = simpleStats.rows.reduce((sum, s) => sum + parseInt(s.count || 0), 0);
@@ -250,10 +285,26 @@ router.post('/',
         }
         
         try {
-            const result = await db.query(
-                'INSERT INTO votings (title, description, type, start_date, end_date, status, created_by, osbb_id) VALUES ($1, $2, $3, $4, $5, \'active\', $6, $7) RETURNING *',
-                [title, description, type, start_date, end_date, created_by, adminOSBBId]
-            );
+            // Check if osbb_id column exists in votings table
+            const columnCheck = await db.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'votings' AND column_name = 'osbb_id'
+            `);
+            const hasOsbbId = columnCheck.rows.length > 0;
+            
+            let result;
+            if (hasOsbbId) {
+                result = await db.query(
+                    'INSERT INTO votings (title, description, type, start_date, end_date, status, created_by, osbb_id) VALUES ($1, $2, $3, $4, $5, \'active\', $6, $7) RETURNING *',
+                    [title, description, type, start_date, end_date, created_by, adminOSBBId]
+                );
+            } else {
+                result = await db.query(
+                    'INSERT INTO votings (title, description, type, start_date, end_date, status, created_by) VALUES ($1, $2, $3, $4, $5, \'active\', $6) RETURNING *',
+                    [title, description, type, start_date, end_date, created_by]
+                );
+            }
             
             // Log voting creation
             await logVoting.create(created_by, adminOSBBId, result.rows[0].id, {
@@ -369,20 +420,35 @@ router.post('/:id/vote', authenticate, async (req, res) => {
     }
 
     try {
-        // Get user's OSBB ID
+        // Get user's OSBB ID - check both apartment_id (for residents) and osbb_id (for admins)
         let userOSBBId = null;
         const userResult = await db.query(
-            'SELECT apartment_id FROM users WHERE id = $1',
+            'SELECT apartment_id, osbb_id, role FROM users WHERE id = $1',
             [user_id]
         );
         
-        if (userResult.rows.length > 0 && userResult.rows[0].apartment_id) {
-            const aptResult = await db.query(
-                'SELECT osbb_id FROM apartments WHERE id = $1',
-                [userResult.rows[0].apartment_id]
-            );
-            if (aptResult.rows.length > 0) {
-                userOSBBId = aptResult.rows[0].osbb_id;
+        if (userResult.rows.length > 0) {
+            const user = userResult.rows[0];
+            
+            // For admins, use osbb_id directly
+            if (user.role === 'admin' && user.osbb_id) {
+                userOSBBId = user.osbb_id;
+            } 
+            // For residents, get osbb_id from apartment
+            else if (user.apartment_id) {
+                const aptResult = await db.query(
+                    'SELECT osbb_id FROM apartments WHERE id = $1',
+                    [user.apartment_id]
+                );
+                if (aptResult.rows.length > 0) {
+                    userOSBBId = aptResult.rows[0].osbb_id;
+                }
+            }
+            
+            // Fallback: Try to get OSBB ID for admin from service
+            if (!userOSBBId && user.role === 'admin') {
+                const { getAdminOSBBId } = require('../services/osbbService');
+                userOSBBId = await getAdminOSBBId(user_id);
             }
         }
         
@@ -392,17 +458,26 @@ router.post('/:id/vote', authenticate, async (req, res) => {
         
         const voting = votingResult.rows[0];
         
-        // Verify voting belongs to user's OSBB (tenant isolation)
-        if (userOSBBId && voting.osbb_id !== userOSBBId) {
-            return res.status(403).json({ 
-                error: 'Voting does not belong to your OSBB' 
-            });
-        }
+        // Check if osbb_id column exists and verify voting belongs to user's OSBB (tenant isolation)
+        const columnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'votings' AND column_name = 'osbb_id'
+        `);
+        const hasOsbbId = columnCheck.rows.length > 0;
         
-        if (!userOSBBId) {
-            return res.status(403).json({ 
-                error: 'You are not associated with an OSBB' 
-            });
+        if (hasOsbbId && voting.osbb_id) {
+            if (userOSBBId && voting.osbb_id !== userOSBBId) {
+                return res.status(403).json({ 
+                    error: 'Voting does not belong to your OSBB' 
+                });
+            }
+            
+            if (!userOSBBId) {
+                return res.status(403).json({ 
+                    error: 'You are not associated with an OSBB' 
+                });
+            }
         }
         
         if (voting.status !== 'active') return res.status(400).json({ error: 'Voting is closed' });
@@ -462,6 +537,39 @@ router.patch('/:id/close', authenticate, requireRole('admin'), async (req, res) 
         await logVoting.close(adminUserId, votingOSBBId, id, req);
         
         res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// DELETE /api/votings/:id (Admin Only)
+// Delete voting - only allowed if no votes have been cast
+router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const adminUserId = req.user.id;
+        
+        // Verify voting belongs to admin's OSBB
+        const belongsToOSBB = await verifyVotingBelongsToOSBB(id, adminUserId);
+        if (!belongsToOSBB) {
+            return res.status(403).json({ 
+                error: 'Voting does not belong to your OSBB' 
+            });
+        }
+        
+        // Check if any votes have been cast
+        const voteCount = await db.query('SELECT COUNT(*) as count FROM votes WHERE voting_id = $1', [id]);
+        if (parseInt(voteCount.rows[0].count) > 0) {
+            return res.status(400).json({ 
+                error: 'Cannot delete voting that has votes. Close it instead.' 
+            });
+        }
+        
+        // Delete voting
+        await db.query('DELETE FROM votings WHERE id = $1', [id]);
+        
+        res.json({ message: 'Voting deleted successfully' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error' });

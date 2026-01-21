@@ -14,6 +14,8 @@ const LoginPage = () => {
     e.preventDefault();
     setError('');
     
+    // Regular users login with phone (or email)
+    // Backend will detect phone pattern and route accordingly
     const result = await login(phone, password);
     if (result.success) {
       navigate('/dashboard');
@@ -42,14 +44,14 @@ const LoginPage = () => {
           )}
           <div className="space-y-4">
             <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Телефон</label>
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Телефон або Email</label>
               <input
                 id="phone"
                 name="phone"
                 type="text"
                 required
                 className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                placeholder="+380..."
+                placeholder="+380XXXXXXXXX або email@example.com"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
               />
