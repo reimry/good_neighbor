@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import api from '../services/api';
 import Logo from '../components/Logo';
 import BalanceWidget from '../components/BalanceWidget';
+import EmptyState from '../components/EmptyState';
+import { Wrench } from 'lucide-react';
 
 const ServicesPage = () => {
   const [data, setData] = useState(null);
@@ -17,13 +19,17 @@ const ServicesPage = () => {
     setLoading(true);
     try {
       const response = await api.get('/services');
+      console.log('Services data:', response.data);
       setData(response.data);
       // Select the most recent month by default
-      if (response.data.months && response.data.months.length > 0) {
+      if (response.data && response.data.months && response.data.months.length > 0) {
         setSelectedMonth(response.data.months[0]);
       }
     } catch (err) {
       console.error('Failed to fetch services', err);
+      console.error('Error details:', err.response?.data || err.message);
+      // Set empty data structure to prevent crashes
+      setData({ balance: 0, months: [] });
     } finally {
       setLoading(false);
     }
@@ -42,8 +48,12 @@ const ServicesPage = () => {
     return names[type] || type;
   };
 
-  const formatMonth = (dateString) => {
-    const date = new Date(dateString);
+  const formatMonth = (dateInput) => {
+    // Handle both Date objects and date strings
+    const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+    if (isNaN(date.getTime())) {
+      return 'Невірна дата';
+    }
     const months = [
       'Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень',
       'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'
@@ -53,8 +63,38 @@ const ServicesPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  // Ensure data exists to prevent crashes
+  if (!data) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white shadow-sm sticky top-0 z-10">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
+            <Link to="/dashboard" className="text-gray-400 hover:text-gray-600">
+              ← Назад
+            </Link>
+            <Logo type="acronym" className="h-10" />
+            <h1 className="text-lg font-bold text-gray-900 ml-2">Послуги та платежі</h1>
+          </div>
+        </header>
+        <main className="max-w-4xl mx-auto px-4 py-8">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <EmptyState
+              icon={Wrench}
+              title="Немає даних про послуги та платежі"
+              description="Зверніться до адміністратора для отримання детальної інформації"
+              actionLabel="Зв'язатися з адміністратором"
+              onAction={() => {
+                window.location.href = 'mailto:admin@osbb.com';
+              }}
+            />
+          </div>
+        </main>
       </div>
     );
   }
@@ -87,8 +127,17 @@ const ServicesPage = () => {
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Оберіть місяць</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                 {data.months.map((monthData, index) => {
-                  const monthKey = monthData.month.toISOString().substring(0, 7);
-                  const isSelected = selectedMonth?.month.toISOString().substring(0, 7) === monthKey;
+                  // Ensure month is a Date object
+                  const monthDate = monthData.month instanceof Date 
+                    ? monthData.month 
+                    : new Date(monthData.month);
+                  const monthKey = monthDate.toISOString().substring(0, 7);
+                  const selectedMonthKey = selectedMonth?.month 
+                    ? (selectedMonth.month instanceof Date 
+                      ? selectedMonth.month 
+                      : new Date(selectedMonth.month)).toISOString().substring(0, 7)
+                    : null;
+                  const isSelected = selectedMonthKey === monthKey;
                   return (
                     <button
                       key={index}
@@ -99,7 +148,7 @@ const ServicesPage = () => {
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
                     >
-                      {formatMonth(monthData.month)}
+                      {formatMonth(monthDate)}
                     </button>
                   );
                 })}
@@ -111,7 +160,9 @@ const ServicesPage = () => {
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-xl font-bold text-gray-900">
-                    {formatMonth(selectedMonth.month)}
+                    {formatMonth(selectedMonth.month instanceof Date 
+                      ? selectedMonth.month 
+                      : new Date(selectedMonth.month))}
                   </h2>
                   <div className="text-right">
                     <div className="text-sm text-gray-500">Загалом</div>
@@ -147,11 +198,17 @@ const ServicesPage = () => {
             )}
           </>
         ) : (
-          <div className="bg-white rounded-lg p-12 text-center border-dashed border-2 border-gray-200">
-            <p className="text-gray-500">Немає даних про послуги та платежі</p>
-            <p className="text-sm text-gray-400 mt-2">
-              Зверніться до адміністратора для отримання детальної інформації
-            </p>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <EmptyState
+              icon={Wrench}
+              title="Немає даних про послуги та платежі"
+              description="Зверніться до адміністратора для отримання детальної інформації"
+              actionLabel="Зв'язатися з адміністратором"
+              onAction={() => {
+                // You can add navigation to contact admin or open a modal
+                window.location.href = 'mailto:admin@osbb.com';
+              }}
+            />
           </div>
         )}
       </main>

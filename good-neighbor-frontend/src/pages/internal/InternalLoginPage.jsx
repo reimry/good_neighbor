@@ -77,13 +77,13 @@ export default function InternalLoginPage() {
             disabled={loading}
             className="w-full bg-primary-500 text-white py-2 px-4 rounded-md hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Вхід...' : 'Увійти'}
+            {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
 
         <div className="mt-4 text-center">
           <a href="/" className="text-sm text-primary-500 hover:text-primary-600">
-            ← Повернутися до основного додатку
+            ← Return to main application
           </a>
         </div>
       </div>

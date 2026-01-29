@@ -31,12 +31,16 @@ function requireRole(...roles) {
  * Super admins have osbb_id = NULL and can bypass tenant isolation
  */
 function requireSuperAdmin(req, res, next) {
-  if (!req.user || req.user.role !== 'super_admin') {
-    return res.status(403).json({ error: 'Доступ заборонено. Потрібні права супер-адміністратора' });
+  if (!req.user) {
+    return res.status(403).json({ error: 'User not authenticated' });
+  }
+  if (req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Access denied. Super admin privileges required' });
   }
   // Verify super_admin has no OSBB association
+  // Check for null or undefined (allowing null explicitly)
   if (req.user.osbb_id !== null && req.user.osbb_id !== undefined) {
-    return res.status(403).json({ error: 'Невірна конфігурація: супер-адміністратор не повинен мати OSBB' });
+    return res.status(403).json({ error: 'Invalid configuration: super admin should not have OSBB association' });
   }
   next();
 }

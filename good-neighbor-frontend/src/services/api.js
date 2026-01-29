@@ -24,4 +24,35 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Add a response interceptor to handle authentication errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Handle 401 (Unauthorized) or 403 (Forbidden) errors
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      const isInternalRoute = error.config?.url?.startsWith('/internal');
+      
+      if (isInternalRoute) {
+        // Clear internal token and redirect to internal login
+        localStorage.removeItem('internal_token');
+        localStorage.removeItem('internal_user');
+        
+        // Only redirect if we're not already on the login page
+        if (window.location.pathname !== '/internal/login') {
+          window.location.href = '/internal/login';
+        }
+      } else {
+        // Clear regular token and redirect to main login
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;

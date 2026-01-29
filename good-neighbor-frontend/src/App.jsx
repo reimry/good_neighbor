@@ -25,6 +25,7 @@ import InternalDashboardPage from './pages/internal/InternalDashboardPage';
 import DatabaseAdminPage from './pages/internal/DatabaseAdminPage';
 import RegistrationsPage from './pages/internal/RegistrationsPage';
 import AuditLogsPage from './pages/internal/AuditLogsPage';
+import SuperadminsPage from './pages/internal/SuperadminsPage';
 
 function App() {
   return (
@@ -177,6 +178,16 @@ function App() {
                   <InternalPrivateRoute>
                     <InternalLayout>
                       <AuditLogsPage />
+                    </InternalLayout>
+                  </InternalPrivateRoute>
+                }
+              />
+              <Route
+                path="/internal/superadmins"
+                element={
+                  <InternalPrivateRoute>
+                    <InternalLayout>
+                      <SuperadminsPage />
                     </InternalLayout>
                   </InternalPrivateRoute>
                 }

@@ -163,24 +163,35 @@ router.get('/:id', authenticate, async (req, res) => {
                 `, votingOsbbId ? [id, votingOsbbId] : [id]);
                 
                 // Get total possible area (sum of all apartments in this OSBB)
+                // Exclude ADMIN apartments and ensure we only count valid apartments
                 const totalAreaQuery = votingOsbbId 
-                    ? 'SELECT SUM(area) as total FROM apartments WHERE osbb_id = $1'
-                    : 'SELECT SUM(area) as total FROM apartments';
+                    ? 'SELECT SUM(area) as total FROM apartments WHERE osbb_id = $1 AND number != \'ADMIN\' AND area > 0'
+                    : 'SELECT SUM(area) as total FROM apartments WHERE number != \'ADMIN\' AND area > 0';
                 const totalAreaResult = await db.query(
                     totalAreaQuery,
                     votingOsbbId ? [votingOsbbId] : []
                 );
                 const totalPossibleWeight = parseFloat(totalAreaResult.rows[0]?.total) || 1;
                 
+                // Safety check: ensure totalPossibleWeight is positive
+                if (totalPossibleWeight <= 0) {
+                    console.warn(`Invalid totalPossibleWeight for voting ${id}: ${totalPossibleWeight}`);
+                }
+                
                 // Calculate percentages for each choice
-                const statsWithPercentages = legalStats.rows.map(stat => ({
-                    choice: stat.choice,
-                    total_weight: parseFloat(stat.total_weight) || 0,
-                    voter_count: parseInt(stat.voter_count) || 0,
-                    percentage: totalPossibleWeight > 0 
-                        ? ((parseFloat(stat.total_weight) / totalPossibleWeight) * 100).toFixed(2)
-                        : 0
-                }));
+                // Cap at 100% to prevent invalid percentages
+                const statsWithPercentages = legalStats.rows.map(stat => {
+                    const weight = parseFloat(stat.total_weight) || 0;
+                    const percentage = totalPossibleWeight > 0 
+                        ? Math.min(((weight / totalPossibleWeight) * 100), 100).toFixed(2)
+                        : 0;
+                    return {
+                        choice: stat.choice,
+                        total_weight: weight,
+                        voter_count: parseInt(stat.voter_count) || 0,
+                        percentage: parseFloat(percentage)
+                    };
+                });
 
                 results = {
                     stats: statsWithPercentages,
@@ -217,13 +228,18 @@ router.get('/:id', authenticate, async (req, res) => {
                 const totalVoted = simpleStats.rows.reduce((sum, s) => sum + parseInt(s.count || 0), 0);
                 
                 // Calculate percentages
-                const statsWithPercentages = simpleStats.rows.map(stat => ({
-                    choice: stat.choice,
-                    count: parseInt(stat.count) || 0,
-                    percentage: totalPossible > 0 
-                        ? ((parseInt(stat.count) / totalPossible) * 100).toFixed(2)
-                        : 0
-                }));
+                // Cap at 100% to prevent invalid percentages
+                const statsWithPercentages = simpleStats.rows.map(stat => {
+                    const count = parseInt(stat.count) || 0;
+                    const percentage = totalPossible > 0 
+                        ? Math.min(((count / totalPossible) * 100), 100).toFixed(2)
+                        : 0;
+                    return {
+                        choice: stat.choice,
+                        count: count,
+                        percentage: parseFloat(percentage)
+                    };
+                });
                 
                 results = {
                     stats: statsWithPercentages,
@@ -415,17 +431,21 @@ router.post('/:id/vote', authenticate, async (req, res) => {
     const { choice } = req.body; // 'for', 'against', 'abstain'
     const user_id = req.user.id;
 
+    console.log('Vote request received:', { voting_id: id, user_id, choice });
+
     if (!['for', 'against', 'abstain'].includes(choice)) {
         return res.status(400).json({ error: 'Invalid choice' });
     }
 
     try {
+        console.log('Step 1: Getting user OSBB ID...');
         // Get user's OSBB ID - check both apartment_id (for residents) and osbb_id (for admins)
         let userOSBBId = null;
         const userResult = await db.query(
             'SELECT apartment_id, osbb_id, role FROM users WHERE id = $1',
             [user_id]
         );
+        console.log('User query result:', userResult.rows[0]);
         
         if (userResult.rows.length > 0) {
             const user = userResult.rows[0];
@@ -433,70 +453,158 @@ router.post('/:id/vote', authenticate, async (req, res) => {
             // For admins, use osbb_id directly
             if (user.role === 'admin' && user.osbb_id) {
                 userOSBBId = user.osbb_id;
+                console.log('Admin OSBB ID from user table:', userOSBBId);
             } 
             // For residents, get osbb_id from apartment
             else if (user.apartment_id) {
+                console.log('Getting OSBB from apartment:', user.apartment_id);
                 const aptResult = await db.query(
                     'SELECT osbb_id FROM apartments WHERE id = $1',
                     [user.apartment_id]
                 );
                 if (aptResult.rows.length > 0) {
                     userOSBBId = aptResult.rows[0].osbb_id;
+                    console.log('OSBB ID from apartment:', userOSBBId);
                 }
             }
             
             // Fallback: Try to get OSBB ID for admin from service
             if (!userOSBBId && user.role === 'admin') {
+                console.log('Trying getAdminOSBBId service...');
                 const { getAdminOSBBId } = require('../services/osbbService');
                 userOSBBId = await getAdminOSBBId(user_id);
+                console.log('OSBB ID from service:', userOSBBId);
             }
         }
         
-        // 1. Check Voting Status and OSBB
-        const votingResult = await db.query('SELECT status, osbb_id FROM votings WHERE id = $1', [id]);
-        if (votingResult.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        console.log('Step 2: Checking osbb_id column existence...');
+        // First check if osbb_id column exists
+        let hasOsbbId = false;
+        try {
+            const columnCheck = await db.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'votings' AND column_name = 'osbb_id'
+            `);
+            hasOsbbId = columnCheck.rows.length > 0;
+            console.log('osbb_id column exists:', hasOsbbId);
+        } catch (colErr) {
+            console.error('Error checking osbb_id column:', colErr);
+            hasOsbbId = false;
+        }
+        
+        console.log('Step 3: Checking voting status...');
+        // 1. Check Voting Status and OSBB - only select osbb_id if column exists
+        const votingQuery = hasOsbbId 
+            ? 'SELECT status, osbb_id FROM votings WHERE id = $1'
+            : 'SELECT status FROM votings WHERE id = $1';
+        const votingResult = await db.query(votingQuery, [id]);
+        
+        if (votingResult.rows.length === 0) {
+            console.log('Voting not found:', id);
+            return res.status(404).json({ error: 'Not found' });
+        }
         
         const voting = votingResult.rows[0];
+        const votingOsbbId = hasOsbbId ? (voting.osbb_id || null) : null;
+        console.log('Voting found:', { status: voting.status, osbb_id: votingOsbbId });
         
-        // Check if osbb_id column exists and verify voting belongs to user's OSBB (tenant isolation)
-        const columnCheck = await db.query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'votings' AND column_name = 'osbb_id'
-        `);
-        const hasOsbbId = columnCheck.rows.length > 0;
-        
-        if (hasOsbbId && voting.osbb_id) {
-            if (userOSBBId && voting.osbb_id !== userOSBBId) {
+        console.log('Step 4: Validating OSBB match...');
+        // Only enforce OSBB check if both voting and user have OSBB IDs
+        // For backward compatibility: if voting has no osbb_id, allow voting
+        if (hasOsbbId && votingOsbbId !== null && votingOsbbId !== undefined) {
+            if (userOSBBId) {
+                // User has OSBB - must match voting's OSBB
+                if (votingOsbbId !== userOSBBId) {
+                    console.log('OSBB mismatch:', { voting_osbb: votingOsbbId, user_osbb: userOSBBId });
+                    return res.status(403).json({ 
+                        error: 'Voting does not belong to your OSBB' 
+                    });
+                }
+                console.log('OSBB match confirmed');
+            } else {
+                // Voting has OSBB but user doesn't - reject
+                console.log('User has no OSBB but voting requires one');
                 return res.status(403).json({ 
-                    error: 'Voting does not belong to your OSBB' 
+                    error: 'You are not associated with an OSBB. Please contact administrator.' 
                 });
             }
-            
-            if (!userOSBBId) {
-                return res.status(403).json({ 
-                    error: 'You are not associated with an OSBB' 
-                });
-            }
+        } else {
+            console.log('Skipping OSBB check (legacy voting or no osbb_id column)');
         }
+        // If voting has no osbb_id (legacy), allow voting regardless of user's OSBB status
         
-        if (voting.status !== 'active') return res.status(400).json({ error: 'Voting is closed' });
+        console.log('Step 5: Checking voting status...');
+        if (voting.status !== 'active') {
+            console.log('Voting is not active:', voting.status);
+            return res.status(400).json({ error: 'Voting is closed' });
+        }
 
+        console.log('Step 6: Checking for duplicate vote...');
         // 2. Check Duplicate Vote
         const voteCheck = await db.query('SELECT id FROM votes WHERE voting_id = $1 AND user_id = $2', [id, user_id]);
-        if (voteCheck.rows.length > 0) return res.status(400).json({ error: 'Already voted' });
+        if (voteCheck.rows.length > 0) {
+            console.log('User already voted');
+            return res.status(400).json({ error: 'Already voted' });
+        }
+        console.log('No duplicate vote found');
 
         // 3. Record Vote
-        await db.query(
-            'INSERT INTO votes (voting_id, user_id, choice) VALUES ($1, $2, $3)',
-            [id, user_id, choice]
-        );
+        try {
+            const insertResult = await db.query(
+                'INSERT INTO votes (voting_id, user_id, choice) VALUES ($1, $2, $3) RETURNING id',
+                [id, user_id, choice]
+            );
+            console.log('Vote recorded successfully:', insertResult.rows[0]);
+        } catch (dbErr) {
+            console.error('Database error in vote endpoint:', {
+                code: dbErr.code,
+                message: dbErr.message,
+                detail: dbErr.detail,
+                constraint: dbErr.constraint,
+                voting_id: id,
+                user_id: user_id,
+                choice: choice
+            });
+            
+            // Handle database constraint errors
+            if (dbErr.code === '23505') { // Unique violation
+                return res.status(400).json({ error: 'You have already voted in this voting' });
+            }
+            if (dbErr.code === '23503') { // Foreign key violation
+                return res.status(400).json({ 
+                    error: 'Invalid voting or user',
+                    details: process.env.NODE_ENV === 'development' ? dbErr.detail : undefined
+                });
+            }
+            // Re-throw to be caught by outer catch
+            throw dbErr;
+        }
 
+        console.log('Vote recorded successfully for voting:', id, 'user:', user_id, 'choice:', choice);
         res.json({ message: 'Vote recorded' });
 
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('=== VOTE ENDPOINT ERROR ===');
+        console.error('Error message:', err.message);
+        console.error('Error code:', err.code);
+        console.error('Error detail:', err.detail);
+        console.error('Error constraint:', err.constraint);
+        console.error('Error stack:', err.stack);
+        console.error('Request params:', { voting_id: id, user_id, choice });
+        console.error('==========================');
+        
+        // Return detailed error in development, generic in production
+        const errorResponse = {
+            error: 'Server error while recording vote',
+            ...(process.env.NODE_ENV === 'development' && {
+                details: err.message,
+                code: err.code,
+                constraint: err.constraint
+            })
+        };
+        
+        res.status(500).json(errorResponse);
     }
 });
 
@@ -544,7 +652,7 @@ router.patch('/:id/close', authenticate, requireRole('admin'), async (req, res) 
 });
 
 // DELETE /api/votings/:id (Admin Only)
-// Delete voting - only allowed if no votes have been cast
+// Delete voting - allowed even if votes have been cast (for cleanup/admin purposes)
 router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
@@ -558,20 +666,24 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
             });
         }
         
-        // Check if any votes have been cast
+        // Check if any votes have been cast (for warning/info, not blocking)
         const voteCount = await db.query('SELECT COUNT(*) as count FROM votes WHERE voting_id = $1', [id]);
-        if (parseInt(voteCount.rows[0].count) > 0) {
-            return res.status(400).json({ 
-                error: 'Cannot delete voting that has votes. Close it instead.' 
-            });
+        const hasVotes = parseInt(voteCount.rows[0].count) > 0;
+        
+        if (hasVotes) {
+            // Delete all votes first (CASCADE should handle this, but explicit is safer)
+            await db.query('DELETE FROM votes WHERE voting_id = $1', [id]);
         }
         
         // Delete voting
         await db.query('DELETE FROM votings WHERE id = $1', [id]);
         
-        res.json({ message: 'Voting deleted successfully' });
+        res.json({ 
+            message: 'Voting deleted successfully',
+            votes_deleted: hasVotes ? parseInt(voteCount.rows[0].count) : 0
+        });
     } catch (err) {
-        console.error(err);
+        console.error('Error deleting voting:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });

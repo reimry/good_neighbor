@@ -33,7 +33,7 @@ export default function AuditLogsPage() {
       setLogs(response.data);
     } catch (error) {
       console.error('Error fetching audit logs:', error);
-      setError(error.response?.data?.error || 'Помилка завантаження журналу аудиту');
+      setError(error.response?.data?.error || 'Error loading audit logs');
     } finally {
       setLoading(false);
     }

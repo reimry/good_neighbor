@@ -25,7 +25,7 @@ router.get('/dashboard/stats', async (req, res) => {
         // Total OSBBs
         const osbbCount = await db.query(
             `SELECT COUNT(*) as count, 
-                    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_count,
+                    COUNT(CASE WHEN status = 'approved' THEN 1 END) as active_count,
                     COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count
              FROM osbb_organizations`
         );
@@ -575,7 +575,7 @@ router.get('/audit-logs/stats', async (req, res) => {
  */
 router.get('/db/users', async (req, res) => {
     try {
-        const { role, osbb_id, search, limit = 50, offset = 0 } = req.query;
+        const { role, osbb_id, search, limit = 50, offset = 0, superadmins_only } = req.query;
         
         // Check if email column exists
         const emailCheck = await db.query(`
@@ -615,10 +615,17 @@ router.get('/db/users', async (req, res) => {
             params.push(role);
         }
         
-        if (osbb_id) {
+        if (superadmins_only === 'true') {
+            // Only show superadmins
+            query += ` AND u.role = 'super_admin'`;
+        } else if (osbb_id) {
             paramCount++;
-            query += ` AND u.osbb_id = $${paramCount}`;
+            query += ` AND u.osbb_id = $${paramCount} AND u.role != 'super_admin'`;
             params.push(parseInt(osbb_id));
+        } else {
+            // When not filtering by OSBB, exclude superadmins from regular users list
+            // (they will be shown in a separate tab)
+            query += ` AND u.role != 'super_admin'`;
         }
         
         if (search) {
@@ -640,7 +647,24 @@ router.get('/db/users', async (req, res) => {
             params.push(`%${search}%`);
         }
         
-        query += ` ORDER BY u.created_at DESC LIMIT $${++paramCount} OFFSET $${++paramCount}`;
+        // Sort by role hierarchy when filtering by OSBB, otherwise by created_at
+        if (superadmins_only === 'true') {
+            query += ` ORDER BY u.created_at DESC`;
+        } else if (osbb_id) {
+            // Role hierarchy: admin > owner > tenant
+            query += ` ORDER BY 
+                CASE u.role 
+                    WHEN 'admin' THEN 1
+                    WHEN 'owner' THEN 2
+                    WHEN 'tenant' THEN 3
+                    ELSE 4
+                END ASC,
+                u.full_name ASC`;
+        } else {
+            query += ` ORDER BY u.created_at DESC`;
+        }
+        
+        query += ` LIMIT $${++paramCount} OFFSET $${++paramCount}`;
         params.push(parseInt(limit), parseInt(offset));
         
         const result = await db.query(query, params);
@@ -659,10 +683,15 @@ router.get('/db/users', async (req, res) => {
             countQuery += ` AND u.role = $${countParamCount}`;
             countParams.push(role);
         }
-        if (osbb_id) {
+        if (superadmins_only === 'true') {
+            countQuery += ` AND u.role = 'super_admin'`;
+        } else if (osbb_id) {
             countParamCount++;
-            countQuery += ` AND u.osbb_id = $${countParamCount}`;
+            countQuery += ` AND u.osbb_id = $${countParamCount} AND u.role != 'super_admin'`;
             countParams.push(parseInt(osbb_id));
+        } else {
+            // Exclude superadmins from count when not filtering by OSBB
+            countQuery += ` AND u.role != 'super_admin'`;
         }
         if (search) {
             countParamCount++;

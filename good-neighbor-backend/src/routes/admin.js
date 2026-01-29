@@ -253,8 +253,14 @@ router.get('/registrations', authenticate, requireRole('admin'), async (req, res
         
         res.json({ registrations: result.rows });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error fetching registrations:', err);
+        console.error('Stack:', err.stack);
+        res.status(500).json({ 
+            error: 'Server error',
+            ...(process.env.NODE_ENV === 'development' && {
+                details: err.message
+            })
+        });
     }
 });
 
@@ -342,13 +348,39 @@ router.patch('/registrations/:id/approve',
             
             const registration = regResult.rows[0];
             
+            console.log('Approving registration:', {
+                id,
+                osbb_id: registration.osbb_id,
+                head_email: registration.head_email,
+                head_phone: registration.head_phone
+            });
+            
+            // Check if email column exists
+            const emailColumnCheck = await db.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'email'
+            `);
+            const hasEmailColumn = emailColumnCheck.rows.length > 0;
+            console.log('Email column exists:', hasEmailColumn);
+            
             // Check if email or phone already exists
-            const existingUser = await db.query(
-                'SELECT id FROM users WHERE email = $1 OR phone = $2',
-                [registration.head_email, registration.head_phone]
-            );
+            let existingUser;
+            if (hasEmailColumn) {
+                existingUser = await db.query(
+                    'SELECT id FROM users WHERE email = $1 OR phone = $2',
+                    [registration.head_email, registration.head_phone]
+                );
+            } else {
+                // If no email column, only check phone
+                existingUser = await db.query(
+                    'SELECT id FROM users WHERE phone = $1',
+                    [registration.head_phone]
+                );
+            }
             
             if (existingUser.rows.length > 0) {
+                console.log('User already exists:', existingUser.rows[0].id);
                 return res.status(400).json({ 
                     error: 'User with this email or phone already exists' 
                 });
@@ -358,19 +390,34 @@ router.patch('/registrations/:id/approve',
             await db.query('BEGIN');
             
             try {
+                console.log('Creating user account...');
                 // Create user account (admin role for OSBB Head)
-                const userResult = await db.query(
-                    `INSERT INTO users (phone, email, password_hash, full_name, role, apartment_id, osbb_id)
-                     VALUES ($1, $2, $3, $4, 'admin', NULL, $5)
-                     RETURNING id`,
-                    [
+                // Build query based on whether email column exists
+                let userQuery, userParams;
+                if (hasEmailColumn) {
+                    userQuery = `INSERT INTO users (phone, email, password_hash, full_name, role, apartment_id, osbb_id)
+                                 VALUES ($1, $2, $3, $4, 'admin', NULL, $5)
+                                 RETURNING id`;
+                    userParams = [
                         registration.head_phone,
                         registration.head_email,
                         registration.password_hash, // Already hashed with Argon2
                         registration.head_full_name,
                         registration.osbb_id
-                    ]
-                );
+                    ];
+                } else {
+                    userQuery = `INSERT INTO users (phone, password_hash, full_name, role, apartment_id, osbb_id)
+                                 VALUES ($1, $2, $3, 'admin', NULL, $4)
+                                 RETURNING id`;
+                    userParams = [
+                        registration.head_phone,
+                        registration.password_hash, // Already hashed with Argon2
+                        registration.head_full_name,
+                        registration.osbb_id
+                    ];
+                }
+                
+                const userResult = await db.query(userQuery, userParams);
                 
                 const userId = userResult.rows[0].id;
                 
@@ -401,17 +448,34 @@ router.patch('/registrations/:id/approve',
                     req
                 );
                 
+                console.log('Registration approved successfully, user ID:', userId);
                 res.json({
                     message: 'Registration approved successfully',
                     user_id: userId
                 });
             } catch (err) {
                 await db.query('ROLLBACK');
+                console.error('Error in approval transaction:', err);
                 throw err;
             }
         } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: 'Server error' });
+            console.error('=== REGISTRATION APPROVAL ERROR ===');
+            console.error('Error message:', err.message);
+            console.error('Error code:', err.code);
+            console.error('Error detail:', err.detail);
+            console.error('Error constraint:', err.constraint);
+            console.error('Error table:', err.table);
+            console.error('Error column:', err.column);
+            console.error('Stack:', err.stack);
+            console.error('==================================');
+            
+            res.status(500).json({ 
+                error: 'Server error while approving registration',
+                ...(process.env.NODE_ENV === 'development' && {
+                    details: err.message,
+                    code: err.code
+                })
+            });
         }
     }
 );

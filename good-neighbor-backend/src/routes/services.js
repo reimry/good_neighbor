@@ -11,8 +11,17 @@ router.get('/', authenticate, async (req, res) => {
         
         // Get user's apartment_id
         const userResult = await db.query('SELECT apartment_id FROM users WHERE id = $1', [userId]);
-        if (userResult.rows.length === 0 || !userResult.rows[0].apartment_id) {
-            return res.status(404).json({ error: 'Apartment not found for user' });
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        if (!userResult.rows[0].apartment_id) {
+            // User has no apartment - return empty data instead of error
+            return res.json({
+                apartment_id: null,
+                balance: 0,
+                months: []
+            });
         }
         
         const apartmentId = userResult.rows[0].apartment_id;
@@ -28,10 +37,12 @@ router.get('/', authenticate, async (req, res) => {
         // Group bills by month
         const billsByMonth = {};
         billsResult.rows.forEach(bill => {
-            const monthKey = bill.month.toISOString().substring(0, 7); // '2025-01'
+            // Ensure month is a Date object
+            const monthDate = bill.month instanceof Date ? bill.month : new Date(bill.month);
+            const monthKey = monthDate.toISOString().substring(0, 7); // '2025-01'
             if (!billsByMonth[monthKey]) {
                 billsByMonth[monthKey] = {
-                    month: bill.month,
+                    month: monthDate.toISOString(), // Send as ISO string for consistency
                     bills: [],
                     total: 0
                 };

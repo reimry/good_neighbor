@@ -35,6 +35,7 @@ desktop.ini
 
 # Keep notes out of the repo (kept historically)
 notes.txt
+*.md
 
 # Do NOT ignore lockfiles (package-lock.json / yarn.lock)
 # They should be committed to ensure deterministic installs

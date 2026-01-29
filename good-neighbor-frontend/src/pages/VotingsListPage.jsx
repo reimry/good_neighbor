@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import VotingCard from '../components/VotingCard';
 import Logo from '../components/Logo';
+import EmptyState from '../components/EmptyState';
+import { FileText } from 'lucide-react';
 
 const VotingsListPage = () => {
     const navigate = useNavigate();
@@ -93,8 +95,17 @@ const VotingsListPage = () => {
                                 ))}
                             </div>
                         ) : (
-                             <div className="bg-white rounded-lg p-12 text-center border-dashed border-2 border-gray-200">
-                                <p className="text-gray-500">Немає активних або завершених голосувань</p>
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+                                <EmptyState
+                                    icon={FileText}
+                                    title="Немає активних або завершених голосувань"
+                                    description="Коли адміністратор створить голосування, воно з'явиться тут"
+                                    actionLabel="Зв'язатися з адміністратором"
+                                    onAction={() => {
+                                        // You can add navigation to contact admin or open a modal
+                                        window.location.href = 'mailto:admin@osbb.com';
+                                    }}
+                                />
                             </div>
                         )}
                     </>

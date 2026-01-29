@@ -60,6 +60,14 @@ router.post('/login', loginValidation, async (req, res) => {
   const { login_id, phone, email, password } = req.body;
 
   try {
+    // Check if email column exists
+    const emailColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'users' AND column_name = 'email'
+    `);
+    const hasEmailColumn = emailColumnCheck.rows.length > 0;
+
     let user = null;
     let identifier = null;
 
@@ -81,10 +89,14 @@ router.post('/login', loginValidation, async (req, res) => {
         const result = await db.query('SELECT * FROM users WHERE phone = $1', [login_id]);
         user = result.rows[0];
         identifier = login_id;
-      } else if (isEmailPattern) {
-        // Treat as email (regular user)
+      } else if (isEmailPattern && hasEmailColumn) {
+        // Treat as email (regular user) - only if email column exists
         const result = await db.query('SELECT * FROM users WHERE email = $1', [login_id]);
         user = result.rows[0];
+        identifier = login_id;
+      } else if (isEmailPattern && !hasEmailColumn) {
+        // Email pattern but no email column - treat as invalid
+        user = null;
         identifier = login_id;
       } else {
         // Treat as login_id (superadmin)
@@ -97,10 +109,14 @@ router.post('/login', loginValidation, async (req, res) => {
       const result = await db.query('SELECT * FROM users WHERE phone = $1', [phone]);
       user = result.rows[0];
       identifier = phone;
-    } else if (email) {
-      // Regular user login: use email
+    } else if (email && hasEmailColumn) {
+      // Regular user login: use email - only if email column exists
       const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
       user = result.rows[0];
+      identifier = email;
+    } else if (email && !hasEmailColumn) {
+      // Email provided but column doesn't exist
+      user = null;
       identifier = email;
     }
 
@@ -242,10 +258,25 @@ router.post('/activate', activateValidation, async (req, res) => {
     const newUser = userResult.rows[0];
 
     // 6. Mark code as used
-    await db.query(
-        'UPDATE invitation_codes SET is_used = TRUE, used_at = NOW() WHERE id = $1', 
-        [invitation.id]
-    );
+    // Check if used_at column exists
+    const usedAtCheck = await db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'invitation_codes' AND column_name = 'used_at'
+    `);
+    const hasUsedAt = usedAtCheck.rows.length > 0;
+    
+    if (hasUsedAt) {
+        await db.query(
+            'UPDATE invitation_codes SET is_used = TRUE, used_at = NOW() WHERE id = $1', 
+            [invitation.id]
+        );
+    } else {
+        await db.query(
+            'UPDATE invitation_codes SET is_used = TRUE WHERE id = $1', 
+            [invitation.id]
+        );
+    }
 
     // 7. Generate token
     const token = generateToken(newUser);

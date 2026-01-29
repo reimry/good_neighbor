@@ -9,10 +9,19 @@ const { body, validationResult } = require('express-validator');
 // Get current user profile
 router.get('/', authenticate, async (req, res) => {
     try {
-        const result = await db.query(
-            'SELECT id, phone, full_name, role, apartment_id, created_at FROM users WHERE id = $1',
-            [req.user.id]
-        );
+        // Check if email column exists
+        const emailCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' AND column_name = 'email'
+        `);
+        const hasEmail = emailCheck.rows.length > 0;
+        
+        const selectFields = hasEmail 
+            ? 'SELECT id, phone, email, full_name, role, apartment_id, created_at FROM users WHERE id = $1'
+            : 'SELECT id, phone, full_name, role, apartment_id, created_at FROM users WHERE id = $1';
+        
+        const result = await db.query(selectFields, [req.user.id]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
@@ -69,6 +78,89 @@ router.patch('/phone',
 
             res.json({
                 message: 'Номер телефону оновлено',
+                user: result.rows[0]
+            });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Server error' });
+        }
+    }
+);
+
+// PATCH /api/profile
+// Update profile information (full_name, phone, email)
+router.patch('/',
+    authenticate,
+    [
+        body('full_name').optional().notEmpty().withMessage('ПІБ не може бути порожнім'),
+        body('phone').optional().matches(/^\+380\d{9}$/).withMessage('Телефон має бути у форматі +380XXXXXXXXX'),
+        body('email').optional().isEmail().withMessage('Невірний формат email')
+    ],
+    async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+
+        const { full_name, phone, email } = req.body;
+        const userId = req.user.id;
+
+        try {
+            // Check if email column exists
+            const emailCheck = await db.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'email'
+            `);
+            const hasEmail = emailCheck.rows.length > 0;
+
+            // Build update query dynamically
+            const updates = [];
+            const params = [];
+            let paramCount = 0;
+
+            if (full_name !== undefined) {
+                paramCount++;
+                updates.push(`full_name = $${paramCount}`);
+                params.push(full_name);
+            }
+
+            if (phone !== undefined) {
+                // Check if phone is already taken by another user
+                const phoneCheck = await db.query('SELECT id FROM users WHERE phone = $1 AND id != $2', [phone, userId]);
+                if (phoneCheck.rows.length > 0) {
+                    return res.status(400).json({ error: 'Користувач з таким телефоном вже існує' });
+                }
+                paramCount++;
+                updates.push(`phone = $${paramCount}`);
+                params.push(phone);
+            }
+
+            if (email !== undefined && hasEmail) {
+                // Check if email is already taken by another user
+                if (email) {
+                    const emailCheck = await db.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email, userId]);
+                    if (emailCheck.rows.length > 0) {
+                        return res.status(400).json({ error: 'Користувач з таким email вже існує' });
+                    }
+                }
+                paramCount++;
+                updates.push(`email = $${paramCount}`);
+                params.push(email);
+            }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ error: 'Немає полів для оновлення' });
+            }
+
+            paramCount++;
+            params.push(userId);
+
+            const updateQuery = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING id, phone, ${hasEmail ? 'email, ' : ''}full_name, role`;
+            const result = await db.query(updateQuery, params);
+
+            res.json({
+                message: 'Профіль успішно оновлено',
                 user: result.rows[0]
             });
         } catch (err) {

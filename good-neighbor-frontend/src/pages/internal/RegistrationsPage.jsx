@@ -22,36 +22,36 @@ export default function RegistrationsPage() {
       setRegistrations(response.data);
     } catch (error) {
       console.error('Error fetching registrations:', error);
-      setError(error.response?.data?.error || 'Помилка завантаження заявок');
+      setError(error.response?.data?.error || 'Error loading registrations');
     } finally {
       setLoading(false);
     }
   };
 
   const handleApprove = async (id) => {
-    if (!confirm('Підтвердити схвалення заявки?')) return;
+    if (!confirm('Confirm approval of this registration?')) return;
 
     try {
       await api.patch(`/internal/registrations/${id}/approve`);
-      alert('Заявку схвалено успішно');
+      alert('Registration approved successfully');
       fetchRegistrations();
       setSelectedRegistration(null);
     } catch (error) {
-      alert(error.response?.data?.error || 'Помилка схвалення заявки');
+      alert(error.response?.data?.error || 'Error approving registration');
     }
   };
 
   const handleReject = async (id) => {
-    const reason = prompt('Вкажіть причину відхилення:');
+    const reason = prompt('Enter rejection reason:');
     if (!reason) return;
 
     try {
       await api.patch(`/internal/registrations/${id}/reject`, { rejection_reason: reason });
-      alert('Заявку відхилено');
+      alert('Registration rejected');
       fetchRegistrations();
       setSelectedRegistration(null);
     } catch (error) {
-      alert(error.response?.data?.error || 'Помилка відхилення заявки');
+      alert(error.response?.data?.error || 'Error rejecting registration');
     }
   };
 
@@ -72,7 +72,7 @@ export default function RegistrationsPage() {
       }
       setTimeout(() => window.URL.revokeObjectURL(url), 5000);
     } catch (error) {
-      alert(error.response?.data?.error || 'Помилка завантаження протоколу');
+      alert(error.response?.data?.error || 'Error loading protocol');
     }
   };
 

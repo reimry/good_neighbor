@@ -7,7 +7,7 @@ const InternalPrivateRoute = ({ children }) => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Завантаження...</div>
+        <div className="text-lg">Loading...</div>
       </div>
     );
   }

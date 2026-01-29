@@ -219,7 +219,19 @@ router.post('/submit',
 
     const { edrpou, head_rnokpp, head_full_name, head_email, head_phone, password } = req.body;
 
+    console.log('Registration submit request:', {
+      edrpou,
+      head_rnokpp,
+      head_full_name,
+      head_email,
+      head_phone,
+      hasPassword: !!password,
+      hasFile: !!req.file,
+      filePath: req.file?.path
+    });
+
     try {
+      console.log('Step 1: Verifying OSBB exists...');
       // Verify OSBB exists
       const osbbResult = await db.query(
         'SELECT id FROM osbb_organizations WHERE edrpou = $1',
@@ -227,30 +239,53 @@ router.post('/submit',
       );
 
       if (osbbResult.rows.length === 0) {
-        fs.unlinkSync(req.file.path);
+        if (req.file) fs.unlinkSync(req.file.path);
         return res.status(400).json({ error: 'OSBB not found. Please verify EDRPOU first.' });
       }
 
       const osbbId = osbbResult.rows[0].id;
+      console.log('OSBB found, ID:', osbbId);
 
+      console.log('Step 2: Verifying head identity...');
       // Verify identity again (security check)
       const verification = verifyHeadIdentity(edrpou, head_rnokpp, head_full_name);
       if (!verification.valid) {
-        fs.unlinkSync(req.file.path);
+        if (req.file) fs.unlinkSync(req.file.path);
         return res.status(400).json({ error: verification.error });
       }
+      console.log('Head identity verified');
 
+      console.log('Step 3: Checking for existing users...');
       // Check if email or phone already exists
-      const existingUser = await db.query(
-        'SELECT id FROM users WHERE email = $1 OR phone = $2',
-        [head_email, head_phone]
-      );
-
-      if (existingUser.rows.length > 0) {
-        fs.unlinkSync(req.file.path);
-        return res.status(400).json({ error: 'Користувач з таким email або телефоном вже існує' });
+      // First check if email column exists
+      const emailColumnCheck = await db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'users' AND column_name = 'email'
+      `);
+      const hasEmailColumn = emailColumnCheck.rows.length > 0;
+      
+      let existingUser;
+      if (hasEmailColumn) {
+        existingUser = await db.query(
+          'SELECT id FROM users WHERE email = $1 OR phone = $2',
+          [head_email, head_phone]
+        );
+      } else {
+        // If no email column, only check phone
+        existingUser = await db.query(
+          'SELECT id FROM users WHERE phone = $1',
+          [head_phone]
+        );
       }
 
+      if (existingUser.rows.length > 0) {
+        if (req.file) fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Користувач з таким email або телефоном вже існує' });
+      }
+      console.log('No existing user found');
+
+      console.log('Step 4: Checking for existing registration requests...');
       // Check if registration request already exists
       const existingRequest = await db.query(
         'SELECT id FROM osbb_registration_requests WHERE edrpou = $1 AND head_rnokpp = $2 AND status = $3',
@@ -258,10 +293,12 @@ router.post('/submit',
       );
 
       if (existingRequest.rows.length > 0) {
-        fs.unlinkSync(req.file.path);
+        if (req.file) fs.unlinkSync(req.file.path);
         return res.status(400).json({ error: 'Заявка на реєстрацію вже подана і очікує розгляду' });
       }
+      console.log('No existing registration request found');
 
+      console.log('Step 5: Hashing password...');
       // Hash password with Argon2
       const passwordHash = await argon2.hash(password, {
         type: argon2.argon2id,
@@ -269,7 +306,12 @@ router.post('/submit',
         timeCost: 3,
         parallelism: 4
       });
+      console.log('Password hashed successfully');
 
+      console.log('Step 6: Creating registration request...');
+      const protocolPath = req.fileRelativePath || req.file.filename;
+      console.log('Protocol path:', protocolPath);
+      
       // Create registration request (store password hash for later account creation)
       const result = await db.query(
         `INSERT INTO osbb_registration_requests 
@@ -283,10 +325,11 @@ router.post('/submit',
           head_full_name,
           head_email,
           head_phone,
-          req.fileRelativePath || req.file.filename, // Store relative path
+          protocolPath,
           passwordHash
         ]
       );
+      console.log('Registration request created, ID:', result.rows[0].id);
 
       res.status(201).json({
         message: 'Заявку на реєстрацію успішно подано. Очікуйте розгляду адміністратором.',
@@ -296,10 +339,40 @@ router.post('/submit',
     } catch (err) {
       // Clean up file on error
       if (req.file) {
-        fs.unlinkSync(req.file.path);
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (fileErr) {
+          console.error('Error deleting file:', fileErr);
+        }
       }
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
+      
+      console.error('=== REGISTRATION SUBMIT ERROR ===');
+      console.error('Error message:', err.message);
+      console.error('Error code:', err.code);
+      console.error('Error detail:', err.detail);
+      console.error('Error constraint:', err.constraint);
+      console.error('Error table:', err.table);
+      console.error('Error column:', err.column);
+      console.error('Request body:', {
+        edrpou,
+        head_rnokpp,
+        head_full_name,
+        head_email,
+        head_phone,
+        hasPassword: !!password,
+        hasFile: !!req.file,
+        filePath: req.file?.path
+      });
+      console.error('Stack:', err.stack);
+      console.error('================================');
+      
+      res.status(500).json({ 
+        error: 'Server error while processing registration',
+        ...(process.env.NODE_ENV === 'development' && {
+          details: err.message,
+          code: err.code
+        })
+      });
     }
   }
 );

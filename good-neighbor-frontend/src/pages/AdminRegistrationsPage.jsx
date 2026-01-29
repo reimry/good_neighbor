@@ -22,7 +22,12 @@ const AdminRegistrationsPage = () => {
         ? '/admin/registrations' 
         : `/admin/registrations?status=${statusFilter}`;
       const response = await api.get(url);
-      setRegistrations(response.data.registrations);
+      // Ensure unique IDs to prevent React key warnings
+      const uniqueRegistrations = response.data.registrations.map((reg, index) => ({
+        ...reg,
+        uniqueKey: reg.id || `reg-${index}-${reg.edrpou}`
+      }));
+      setRegistrations(uniqueRegistrations);
     } catch (err) {
       console.error('Failed to fetch registrations', err);
     } finally {
@@ -160,7 +165,7 @@ const AdminRegistrationsPage = () => {
             ) : (
               registrations.map((reg) => (
                 <div
-                  key={reg.id}
+                  key={reg.uniqueKey || reg.id || `reg-${reg.edrpou}-${reg.head_rnokpp}`}
                   className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
                 >
                   <div className="flex justify-between items-start">

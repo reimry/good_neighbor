@@ -2,8 +2,16 @@ import { Link, useLocation } from 'react-router-dom';
 import { useInternalAuth } from '../contexts/InternalAuthContext';
 
 export default function InternalLayout({ children }) {
-  const { user, logout } = useInternalAuth();
+  const { user, logout, loading } = useInternalAuth();
   const location = useLocation();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg text-neutral-600">Loading...</div>
+      </div>
+    );
+  }
 
   const isActive = (path) => location.pathname === path;
 
@@ -23,7 +31,7 @@ export default function InternalLayout({ children }) {
                 onClick={logout}
                 className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
               >
-                Вийти
+                Logout
               </button>
             </div>
           </div>
@@ -73,6 +81,16 @@ export default function InternalLayout({ children }) {
               }`}
             >
               Audit Logs
+            </Link>
+            <Link
+              to="/internal/superadmins"
+              className={`py-4 px-1 border-b-2 text-sm font-medium transition-colors ${
+                isActive('/internal/superadmins')
+                  ? 'border-purple-500 text-purple-600'
+                  : 'border-transparent text-purple-400 hover:text-purple-600 hover:border-purple-500'
+              }`}
+            >
+              🔒 Superadmins
             </Link>
           </div>
         </div>

@@ -2,27 +2,21 @@ import { useState, useEffect } from 'react';
 import api from '../../services/api';
 
 export default function DatabaseAdminPage() {
-  const [activeTab, setActiveTab] = useState('users');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Users state
-  const [users, setUsers] = useState([]);
-  const [usersTotal, setUsersTotal] = useState(0);
-  const [usersPage, setUsersPage] = useState(1);
-  const [usersFilters, setUsersFilters] = useState({ role: '', search: '' });
 
   // Organizations state
   const [organizations, setOrganizations] = useState([]);
   const [orgsTotal, setOrgsTotal] = useState(0);
-  const [orgsPage, setOrgsPage] = useState(1);
   const [orgsFilters, setOrgsFilters] = useState({ status: '', search: '' });
-
-  // Apartments state
-  const [apartments, setApartments] = useState([]);
-  const [aptsTotal, setAptsTotal] = useState(0);
-  const [aptsPage, setAptsPage] = useState(1);
-  const [aptsFilters, setAptsFilters] = useState({ search: '' });
+  const [selectedOrg, setSelectedOrg] = useState(null);
+  const [selectedOrgUsers, setSelectedOrgUsers] = useState([]);
+  const [selectedOrgUsersTotal, setSelectedOrgUsersTotal] = useState(0);
+  const [selectedOrgUsersPage, setSelectedOrgUsersPage] = useState(1);
+  const [selectedOrgApartments, setSelectedOrgApartments] = useState([]);
+  const [selectedOrgApartmentsTotal, setSelectedOrgApartmentsTotal] = useState(0);
+  const [selectedOrgApartmentsPage, setSelectedOrgApartmentsPage] = useState(1);
+  const [selectedOrgDetailTab, setSelectedOrgDetailTab] = useState('users'); // 'users' or 'apartments'
 
   // Edit modals
   const [editingUser, setEditingUser] = useState(null);
@@ -34,42 +28,25 @@ export default function DatabaseAdminPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   useEffect(() => {
-    if (activeTab === 'users') {
-      fetchUsers();
-    } else if (activeTab === 'organizations') {
-      fetchOrganizations();
-    } else if (activeTab === 'apartments') {
-      fetchApartments();
-    }
-  }, [activeTab, usersPage, usersFilters, orgsPage, orgsFilters, aptsPage, aptsFilters]);
+    fetchOrganizations();
+  }, [orgsFilters]);
 
-  const fetchUsers = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams({
-        limit: '20',
-        offset: String((usersPage - 1) * 20),
-        ...(usersFilters.role && { role: usersFilters.role }),
-        ...(usersFilters.search && { search: usersFilters.search })
-      });
-      const response = await api.get(`/internal/db/users?${params}`);
-      setUsers(response.data.users);
-      setUsersTotal(response.data.total);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Помилка завантаження користувачів');
-    } finally {
-      setLoading(false);
+  // Fetch selected organization's users and apartments
+  useEffect(() => {
+    if (selectedOrg) {
+      fetchSelectedOrgUsers();
+      fetchSelectedOrgApartments();
     }
-  };
+  }, [selectedOrg, selectedOrgUsersPage, selectedOrgApartmentsPage]);
+
 
   const fetchOrganizations = async () => {
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams({
-        limit: '20',
-        offset: String((orgsPage - 1) * 20),
+        limit: '1000', // Get all for the sidebar list
+        offset: '0',
         ...(orgsFilters.status && { status: orgsFilters.status }),
         ...(orgsFilters.search && { search: orgsFilters.search })
       });
@@ -77,30 +54,50 @@ export default function DatabaseAdminPage() {
       setOrganizations(response.data.organizations);
       setOrgsTotal(response.data.total);
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка завантаження організацій');
+      setError(err.response?.data?.error || 'Error loading organizations');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchApartments = async () => {
+  const fetchSelectedOrgUsers = async () => {
+    if (!selectedOrg) return;
     setLoading(true);
-    setError('');
     try {
       const params = new URLSearchParams({
         limit: '20',
-        offset: String((aptsPage - 1) * 20),
-        ...(aptsFilters.search && { search: aptsFilters.search })
+        offset: String((selectedOrgUsersPage - 1) * 20),
+        osbb_id: String(selectedOrg.id)
       });
-      const response = await api.get(`/internal/db/apartments?${params}`);
-      setApartments(response.data.apartments);
-      setAptsTotal(response.data.total);
+      const response = await api.get(`/internal/db/users?${params}`);
+      setSelectedOrgUsers(response.data.users);
+      setSelectedOrgUsersTotal(response.data.total);
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка завантаження квартир');
+      setError(err.response?.data?.error || 'Error loading organization users');
     } finally {
       setLoading(false);
     }
   };
+
+  const fetchSelectedOrgApartments = async () => {
+    if (!selectedOrg) return;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: '20',
+        offset: String((selectedOrgApartmentsPage - 1) * 20),
+        osbb_id: String(selectedOrg.id)
+      });
+      const response = await api.get(`/internal/db/apartments?${params}`);
+      setSelectedOrgApartments(response.data.apartments);
+      setSelectedOrgApartmentsTotal(response.data.total);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error loading organization apartments');
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   const handleEditUser = async (user) => {
     try {
@@ -108,7 +105,7 @@ export default function DatabaseAdminPage() {
       setEditingUser(response.data);
       setShowUserModal(true);
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка завантаження даних користувача');
+      setError(err.response?.data?.error || 'Error loading user data');
     }
   };
 
@@ -127,25 +124,34 @@ export default function DatabaseAdminPage() {
       });
       setShowUserModal(false);
       setEditingUser(null);
-      fetchUsers();
+      if (selectedOrg) {
+        fetchSelectedOrgUsers();
+        fetchSelectedOrgApartments();
+        fetchOrganizations();
+      }
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка оновлення користувача');
+      setError(err.response?.data?.error || 'Error updating user');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteUser = async (userId) => {
-    if (!confirm('Ви впевнені, що хочете видалити цього користувача?')) {
+    if (!confirm('Are you sure you want to delete this user?')) {
       return;
     }
     setLoading(true);
     setError('');
     try {
       await api.delete(`/internal/db/users/${userId}`);
-      fetchUsers();
+      if (selectedOrg) {
+        fetchSelectedOrgUsers();
+        fetchSelectedOrgApartments();
+        // Refresh organization stats
+        fetchOrganizations();
+      }
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка видалення користувача');
+      setError(err.response?.data?.error || 'Error deleting user');
     } finally {
       setLoading(false);
     }
@@ -154,11 +160,11 @@ export default function DatabaseAdminPage() {
   const handleResetPassword = async (e) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
-      setError('Паролі не співпадають');
+      setError('Passwords do not match');
       return;
     }
     if (newPassword.length < 6) {
-      setError('Пароль має бути мінімум 6 символів');
+      setError('Password must be at least 6 characters');
       return;
     }
     setLoading(true);
@@ -170,9 +176,9 @@ export default function DatabaseAdminPage() {
       setShowPasswordReset(false);
       setNewPassword('');
       setConfirmPassword('');
-      alert('Пароль успішно змінено!');
+      alert('Password changed successfully!');
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка зміни пароля');
+      setError(err.response?.data?.error || 'Error changing password');
     } finally {
       setLoading(false);
     }
@@ -184,7 +190,7 @@ export default function DatabaseAdminPage() {
       setEditingOrg(response.data);
       setShowOrgModal(true);
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка завантаження даних організації');
+      setError(err.response?.data?.error || 'Error loading organization data');
     }
   };
 
@@ -202,11 +208,21 @@ export default function DatabaseAdminPage() {
         authorized_person: editingOrg.authorized_person,
         status: editingOrg.status
       });
+      const orgId = editingOrg.id;
       setShowOrgModal(false);
       setEditingOrg(null);
-      fetchOrganizations();
+      await fetchOrganizations();
+      // If we edited the selected org, update it
+      if (selectedOrg && selectedOrg.id === orgId) {
+        // Refresh the selected org data
+        const updatedOrgsResponse = await api.get(`/internal/db/organizations?limit=1000`);
+        const updatedOrg = updatedOrgsResponse.data.organizations.find(o => o.id === orgId);
+        if (updatedOrg) {
+          setSelectedOrg(updatedOrg);
+        }
+      }
     } catch (err) {
-      setError(err.response?.data?.error || 'Помилка оновлення організації');
+      setError(err.response?.data?.error || 'Error updating organization');
     } finally {
       setLoading(false);
     }
@@ -222,261 +238,13 @@ export default function DatabaseAdminPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="border-b border-neutral-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'users'
-                ? 'border-primary-500 text-primary-500'
-                : 'border-transparent text-neutral-700 hover:text-primary-500 hover:border-primary-500'
-            }`}
-          >
-            Users ({usersTotal})
-          </button>
-          <button
-            onClick={() => setActiveTab('organizations')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'organizations'
-                ? 'border-primary-500 text-primary-500'
-                : 'border-transparent text-neutral-700 hover:text-primary-500 hover:border-primary-500'
-            }`}
-          >
-            Organizations ({orgsTotal})
-          </button>
-          <button
-            onClick={() => setActiveTab('apartments')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'apartments'
-                ? 'border-primary-500 text-primary-500'
-                : 'border-transparent text-neutral-700 hover:text-primary-500 hover:border-primary-500'
-            }`}
-          >
-            Apartments ({aptsTotal})
-          </button>
-        </nav>
-      </div>
-
-      {/* Users Tab */}
-      {activeTab === 'users' && (
-        <div>
-          {/* Filters */}
-          <div className="bg-white p-4 rounded-lg shadow mb-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Role</label>
-                <select
-                  value={usersFilters.role}
-                  onChange={(e) => {
-                    setUsersFilters({ ...usersFilters, role: e.target.value });
-                    setUsersPage(1);
-                  }}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-md"
-                >
-                  <option value="">All Roles</option>
-                  <option value="admin">Admin</option>
-                  <option value="owner">Owner</option>
-                  <option value="tenant">Tenant</option>
-                  <option value="super_admin">Super Admin</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Search</label>
-                <input
-                  type="text"
-                  value={usersFilters.search}
-                  onChange={(e) => {
-                    setUsersFilters({ ...usersFilters, search: e.target.value });
-                    setUsersPage(1);
-                  }}
-                  placeholder="Name, phone, email..."
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-md"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Users Table */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-neutral-200">
-              <thead className="bg-neutral-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Phone</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Apartment</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">OSBB</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Password</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-neutral-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan="9" className="px-6 py-4 text-center">Loading...</td>
-                  </tr>
-                ) : users.length === 0 ? (
-                  <tr>
-                    <td colSpan="9" className="px-6 py-4 text-center text-neutral-500">No users found</td>
-                  </tr>
-                ) : (
-                  users.map((user) => (
-                    <tr key={user.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{user.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{user.full_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{user.phone || '-'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{user.email || '-'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs rounded ${
-                          user.role === 'super_admin' ? 'bg-purple-100 text-purple-800' :
-                          user.role === 'admin' ? 'bg-blue-100 text-blue-800' :
-                          'bg-green-100 text-green-800'
-                        }`}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">
-                        {user.apartment_number ? (
-                          <span className="font-medium">
-                            #{user.apartment_number}
-                            {user.apartment_area && ` (${parseFloat(user.apartment_area).toFixed(1)} m²)`}
-                          </span>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{user.osbb_name || '-'}</td>
-                      <td className="px-6 py-4 text-sm">
-                        {(user.password_hash && user.password_hash.trim() !== '') || (user.passwordHash && user.passwordHash.trim() !== '') ? (
-                          <div className="flex flex-col gap-1">
-                            <span className="text-xs text-green-600 font-medium">✓ Set</span>
-                            {/* Show test password hint for seeded users */}
-                            {(user.phone && user.phone.startsWith('+380501234')) || (user.email && user.email.includes('@osbb')) || (user.email && user.email.includes('@example.com')) ? (
-                              <span className="text-xs text-blue-600 font-semibold" title="Test user password">
-                                Test: password123
-                              </span>
-                            ) : null}
-                            <details className="text-xs">
-                              <summary className="cursor-pointer text-neutral-500 hover:text-neutral-700 underline">
-                                View hash
-                              </summary>
-                              <div className="mt-2">
-                                <code 
-                                  className="block text-xs bg-neutral-100 p-2 rounded break-all font-mono max-w-xs cursor-pointer hover:bg-neutral-200"
-                                  onClick={(e) => {
-                                    const hash = user.password_hash || user.passwordHash;
-                                    navigator.clipboard.writeText(hash);
-                                    e.target.classList.add('bg-green-100');
-                                    setTimeout(() => e.target.classList.remove('bg-green-100'), 500);
-                                  }}
-                                  title="Click to copy"
-                                >
-                                  {user.password_hash || user.passwordHash || 'N/A'}
-                                </code>
-                                <span className="text-xs text-neutral-400 mt-1 block">Click to copy hash</span>
-                                <span className="text-xs text-yellow-600 mt-1 block italic">⚠️ Cannot reverse to password</span>
-                              </div>
-                            </details>
-                            <button
-                              onClick={() => {
-                                handleEditUser(user);
-                                setShowPasswordReset(true);
-                              }}
-                              className="text-xs text-yellow-600 hover:text-yellow-700 underline mt-1"
-                              title="Reset password"
-                            >
-                              Reset Password
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-1">
-                            <span className="text-xs text-red-600">✗ Not set</span>
-                            <button
-                              onClick={() => {
-                                handleEditUser(user);
-                                setShowPasswordReset(true);
-                              }}
-                              className="text-xs text-yellow-600 hover:text-yellow-700 underline mt-1"
-                              title="Set password"
-                            >
-                              Set Password
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <button
-                          onClick={() => handleEditUser(user)}
-                          className="text-primary-500 hover:text-primary-700 mr-3"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            </div>
-
-            {/* Pagination */}
-            <div className="bg-neutral-50 px-6 py-3 flex items-center justify-between">
-              <div className="text-sm text-neutral-700">
-                Showing {((usersPage - 1) * 20) + 1} - {Math.min(usersPage * 20, usersTotal)} of {usersTotal}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setUsersPage(p => Math.max(1, p - 1))}
-                  disabled={usersPage === 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setUsersPage(p => p + 1)}
-                  disabled={usersPage * 20 >= usersTotal}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Organizations Tab */}
-      {activeTab === 'organizations' && (
-        <div>
-          {/* Filters */}
-          <div className="bg-white p-4 rounded-lg shadow mb-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Status</label>
-                <select
-                  value={orgsFilters.status}
-                  onChange={(e) => {
-                    setOrgsFilters({ ...orgsFilters, status: e.target.value });
-                    setOrgsPage(1);
-                  }}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-md"
-                >
-                  <option value="">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </div>
+      {/* Organizations Hybrid Layout */}
+      <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
+        {/* Left Sidebar - Organizations List */}
+        <div className="w-full lg:w-80 flex-shrink-0 bg-white rounded-lg shadow overflow-hidden flex flex-col">
+          {/* Search and Filters */}
+          <div className="p-4 border-b border-neutral-200">
+            <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-neutral-700 mb-1">Search</label>
                 <input
@@ -484,186 +252,312 @@ export default function DatabaseAdminPage() {
                   value={orgsFilters.search}
                   onChange={(e) => {
                     setOrgsFilters({ ...orgsFilters, search: e.target.value });
-                    setOrgsPage(1);
                   }}
                   placeholder="Name, EDRPOU..."
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-md"
+                  className="w-full px-3 py-2 border border-neutral-300 rounded-md text-sm"
                 />
               </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">Status</label>
+                  <select
+                    value={orgsFilters.status}
+                    onChange={(e) => {
+                      setOrgsFilters({ ...orgsFilters, status: e.target.value });
+                    }}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-md text-sm"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Organizations Table */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-neutral-200">
-              <thead className="bg-neutral-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">EDRPOU</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Address</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Stats</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-neutral-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan="7" className="px-6 py-4 text-center">Loading...</td>
-                  </tr>
-                ) : organizations.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="px-6 py-4 text-center text-neutral-500">No organizations found</td>
-                  </tr>
-                ) : (
-                  organizations.map((org) => (
-                    <tr key={org.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{org.id}</td>
-                      <td className="px-6 py-4 text-sm text-neutral-900">{org.full_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{org.edrpou}</td>
-                      <td className="px-6 py-4 text-sm text-neutral-500">
-                        {org.address_city && `${org.address_city}, ${org.address_street} ${org.address_building}`}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs rounded ${
+            {/* Organizations List */}
+            <div className="flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="p-4 text-center text-neutral-500">Loading...</div>
+              ) : organizations.length === 0 ? (
+                <div className="p-4 text-center text-neutral-500">No organizations found</div>
+              ) : (
+                <div className="divide-y divide-neutral-200">
+                  {organizations.map((org) => (
+                    <button
+                      key={org.id}
+                      onClick={() => {
+                        setSelectedOrg(org);
+                        setSelectedOrgUsersPage(1);
+                        setSelectedOrgApartmentsPage(1);
+                        setSelectedOrgDetailTab('users');
+                      }}
+                      className={`w-full text-left p-4 hover:bg-neutral-50 transition-colors ${
+                        selectedOrg?.id === org.id ? 'bg-primary-50 border-l-4 border-primary-500' : ''
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="font-semibold text-sm text-neutral-900 line-clamp-1">{org.full_name}</h3>
+                        <span className={`ml-2 px-2 py-0.5 text-xs rounded flex-shrink-0 ${
                           org.status === 'approved' ? 'bg-green-100 text-green-800' :
                           org.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-red-100 text-red-800'
                         }`}>
                           {org.status}
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">
-                        {org.user_count} users, {org.apartment_count} apartments
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <button
-                          onClick={() => handleEditOrg(org)}
-                          className="text-primary-500 hover:text-primary-700"
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            </div>
-
-            {/* Pagination */}
-            <div className="bg-neutral-50 px-6 py-3 flex items-center justify-between">
-              <div className="text-sm text-neutral-700">
-                Showing {((orgsPage - 1) * 20) + 1} - {Math.min(orgsPage * 20, orgsTotal)} of {orgsTotal}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setOrgsPage(p => Math.max(1, p - 1))}
-                  disabled={orgsPage === 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setOrgsPage(p => p + 1)}
-                  disabled={orgsPage * 20 >= orgsTotal}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
+                      </div>
+                      <p className="text-xs text-neutral-500 mb-1">EDRPOU: {org.edrpou}</p>
+                      <p className="text-xs text-neutral-600 mb-2 line-clamp-1">
+                        {org.address_city && `${org.address_city}, ${org.address_street} ${org.address_building}`}
+                      </p>
+                      <div className="flex gap-3 text-xs text-neutral-500">
+                        <span>👥 {org.user_count || 0} users</span>
+                        <span>🏠 {org.apartment_count || 0} apts</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Apartments Tab */}
-      {activeTab === 'apartments' && (
-        <div>
-          {/* Filters */}
-          <div className="bg-white p-4 rounded-lg shadow mb-4">
-            <input
-              type="text"
-              value={aptsFilters.search}
-              onChange={(e) => {
-                setAptsFilters({ ...aptsFilters, search: e.target.value });
-                setAptsPage(1);
-              }}
-              placeholder="Search by apartment number..."
-              className="w-full px-3 py-2 border border-neutral-300 rounded-md"
-            />
-          </div>
-
-          {/* Apartments Table */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-neutral-200">
-              <thead className="bg-neutral-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Number</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Area (m²)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Balance (UAH)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">OSBB</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Residents</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-neutral-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan="6" className="px-6 py-4 text-center">Loading...</td>
-                  </tr>
-                ) : apartments.length === 0 ? (
-                  <tr>
-                    <td colSpan="6" className="px-6 py-4 text-center text-neutral-500">No apartments found</td>
-                  </tr>
-                ) : (
-                  apartments.map((apt) => (
-                    <tr key={apt.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{apt.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{apt.number}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{apt.area}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
-                        parseFloat(apt.balance) < 0 ? 'text-red-600' : 'text-green-600'
+        {/* Right Panel - Selected Organization Details */}
+        <div className="flex-1 bg-white rounded-lg shadow overflow-hidden flex flex-col">
+          {selectedOrg ? (
+              <>
+                {/* Organization Header */}
+                <div className="p-6 border-b border-neutral-200 bg-neutral-50">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-neutral-900 mb-2">{selectedOrg.full_name}</h3>
+                      <div className="space-y-1 text-sm text-neutral-600">
+                        <p><strong>EDRPOU:</strong> {selectedOrg.edrpou}</p>
+                        {selectedOrg.address_city && (
+                          <p><strong>Address:</strong> {selectedOrg.address_city}, {selectedOrg.address_street} {selectedOrg.address_building}</p>
+                        )}
+                        {selectedOrg.authorized_person && (
+                          <p><strong>Authorized Person:</strong> {selectedOrg.authorized_person}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 text-sm rounded ${
+                        selectedOrg.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        selectedOrg.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
                       }`}>
-                        {parseFloat(apt.balance).toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{apt.osbb_name || '-'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{apt.resident_count || 0}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            </div>
+                        {selectedOrg.status}
+                      </span>
+                      <button
+                        onClick={() => handleEditOrg(selectedOrg)}
+                        className="px-3 py-1 text-sm bg-primary-500 text-white rounded hover:bg-primary-600"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-            {/* Pagination */}
-            <div className="bg-neutral-50 px-6 py-3 flex items-center justify-between">
-              <div className="text-sm text-neutral-700">
-                Showing {((aptsPage - 1) * 20) + 1} - {Math.min(aptsPage * 20, aptsTotal)} of {aptsTotal}
+                {/* Detail Tabs */}
+                <div className="border-b border-neutral-200">
+                  <nav className="flex">
+                    <button
+                      onClick={() => setSelectedOrgDetailTab('users')}
+                      className={`px-6 py-3 text-sm font-medium border-b-2 ${
+                        selectedOrgDetailTab === 'users'
+                          ? 'border-primary-500 text-primary-600'
+                          : 'border-transparent text-neutral-500 hover:text-neutral-700'
+                      }`}
+                    >
+                      Users ({selectedOrgUsersTotal})
+                    </button>
+                    <button
+                      onClick={() => setSelectedOrgDetailTab('apartments')}
+                      className={`px-6 py-3 text-sm font-medium border-b-2 ${
+                        selectedOrgDetailTab === 'apartments'
+                          ? 'border-primary-500 text-primary-600'
+                          : 'border-transparent text-neutral-500 hover:text-neutral-700'
+                      }`}
+                    >
+                      Apartments ({selectedOrgApartmentsTotal})
+                    </button>
+                  </nav>
+                </div>
+
+                {/* Detail Content */}
+                <div className="flex-1 overflow-y-auto">
+                  {selectedOrgDetailTab === 'users' ? (
+                    <div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-neutral-200">
+                          <thead className="bg-neutral-50 sticky top-0">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">ID</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Name</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Phone</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Email</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Role</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Apartment</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-neutral-200">
+                            {loading ? (
+                              <tr>
+                                <td colSpan="7" className="px-6 py-4 text-center">Loading...</td>
+                              </tr>
+                            ) : selectedOrgUsers.length === 0 ? (
+                              <tr>
+                                <td colSpan="7" className="px-6 py-4 text-center text-neutral-500">No users found</td>
+                              </tr>
+                            ) : (
+                              selectedOrgUsers.map((user) => (
+                                <tr key={user.id}>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{user.id}</td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{user.full_name}</td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{user.phone || '-'}</td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{user.email || '-'}</td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className={`px-2 py-1 text-xs rounded ${
+                                      user.role === 'admin' ? 'bg-blue-100 text-blue-800' :
+                                      'bg-green-100 text-green-800'
+                                    }`}>
+                                      {user.role}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">
+                                    {user.apartment_number ? (
+                                      <span className="font-medium">
+                                        #{user.apartment_number}
+                                        {user.apartment_area && ` (${parseFloat(user.apartment_area).toFixed(1)} m²)`}
+                                      </span>
+                                    ) : (
+                                      '-'
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    <button
+                                      onClick={() => handleEditUser(user)}
+                                      className="text-primary-500 hover:text-primary-700 mr-3"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteUser(user.id)}
+                                      className="text-red-500 hover:text-red-700"
+                                    >
+                                      Delete
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* Pagination */}
+                      {selectedOrgUsersTotal > 20 && (
+                        <div className="bg-neutral-50 px-6 py-3 flex items-center justify-between border-t">
+                          <div className="text-sm text-neutral-700">
+                            Showing {((selectedOrgUsersPage - 1) * 20) + 1} - {Math.min(selectedOrgUsersPage * 20, selectedOrgUsersTotal)} of {selectedOrgUsersTotal}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setSelectedOrgUsersPage(p => Math.max(1, p - 1))}
+                              disabled={selectedOrgUsersPage === 1}
+                              className="px-3 py-1 border rounded disabled:opacity-50 text-sm"
+                            >
+                              Previous
+                            </button>
+                            <button
+                              onClick={() => setSelectedOrgUsersPage(p => p + 1)}
+                              disabled={selectedOrgUsersPage * 20 >= selectedOrgUsersTotal}
+                              className="px-3 py-1 border rounded disabled:opacity-50 text-sm"
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-neutral-200">
+                          <thead className="bg-neutral-50 sticky top-0">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">ID</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Number</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Area (m²)</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Balance (UAH)</th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-neutral-700 uppercase">Residents</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-neutral-200">
+                            {loading ? (
+                              <tr>
+                                <td colSpan="5" className="px-6 py-4 text-center">Loading...</td>
+                              </tr>
+                            ) : selectedOrgApartments.length === 0 ? (
+                              <tr>
+                                <td colSpan="5" className="px-6 py-4 text-center text-neutral-500">No apartments found</td>
+                              </tr>
+                            ) : (
+                              selectedOrgApartments.map((apt) => (
+                                <tr key={apt.id}>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{apt.id}</td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-900">{apt.number}</td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{apt.area}</td>
+                                  <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
+                                    parseFloat(apt.balance) < 0 ? 'text-red-600' : 'text-green-600'
+                                  }`}>
+                                    {parseFloat(apt.balance).toFixed(2)}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-500">{apt.resident_count || 0}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* Pagination */}
+                      {selectedOrgApartmentsTotal > 20 && (
+                        <div className="bg-neutral-50 px-6 py-3 flex items-center justify-between border-t">
+                          <div className="text-sm text-neutral-700">
+                            Showing {((selectedOrgApartmentsPage - 1) * 20) + 1} - {Math.min(selectedOrgApartmentsPage * 20, selectedOrgApartmentsTotal)} of {selectedOrgApartmentsTotal}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setSelectedOrgApartmentsPage(p => Math.max(1, p - 1))}
+                              disabled={selectedOrgApartmentsPage === 1}
+                              className="px-3 py-1 border rounded disabled:opacity-50 text-sm"
+                            >
+                              Previous
+                            </button>
+                            <button
+                              onClick={() => setSelectedOrgApartmentsPage(p => p + 1)}
+                              disabled={selectedOrgApartmentsPage * 20 >= selectedOrgApartmentsTotal}
+                              className="px-3 py-1 border rounded disabled:opacity-50 text-sm"
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-neutral-500">
+                <div className="text-center">
+                  <p className="text-lg mb-2">Select an organization</p>
+                  <p className="text-sm">Choose an organization from the list to view its users and apartments</p>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setAptsPage(p => Math.max(1, p - 1))}
-                  disabled={aptsPage === 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setAptsPage(p => p + 1)}
-                  disabled={aptsPage * 20 >= aptsTotal}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </div>
+            )}
         </div>
-      )}
+      </div>
 
       {/* Edit User Modal */}
       {showUserModal && editingUser && (

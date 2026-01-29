@@ -38,6 +38,17 @@ const mockEDRDatabase = {
     },
     authorized_person: 'Сидоренко Олексій Петрович',
     status: 'REGISTERED'
+  },
+  '99999999': {
+    edrpou: '99999999',
+    full_name: 'ОСББ "НОВИЙ БУДИНОК"',
+    address: {
+      city: 'Харків',
+      street: 'вул. Сумська',
+      building: '25'
+    },
+    authorized_person: 'Мельник Дмитро Олександрович',
+    status: 'REGISTERED'
   }
 };
 
@@ -68,6 +79,23 @@ const mockDRRPDatabase = {
     ownership_share: '1/1',
     owner_rnokpp: '9876543210',
     owner_name: 'Коваленко Марія Василівна'
+  },
+  // Properties for EDRPOU 99999999 (New OSBB for video demo)
+  'PROP-004': {
+    property_id: 'PROP-004',
+    edrpou: '99999999',
+    total_area: 1200.0,
+    ownership_share: '1/1',
+    owner_rnokpp: '5555555555',
+    owner_name: 'Мельник Дмитро Олександрович'
+  },
+  'PROP-005': {
+    property_id: 'PROP-005',
+    edrpou: '99999999',
+    total_area: 850.5,
+    ownership_share: '1/1',
+    owner_rnokpp: '5555555555',
+    owner_name: 'Мельник Дмитро Олександрович'
   }
 };
 

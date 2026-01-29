@@ -3,15 +3,19 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import Logo from '../components/Logo';
 import { useAuth } from '../contexts/AuthContext';
+import { User, Phone, Shield, Home, Square, Mail, Edit2, Save, X } from 'lucide-react';
 
 const ProfilePage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('phone'); // 'phone' or 'password'
   const [formData, setFormData] = useState({
+    full_name: '',
     phone: '',
+    email: '',
     current_password: '',
     new_password: '',
     confirm_password: ''
@@ -28,13 +32,77 @@ const ProfilePage = () => {
     try {
       const response = await api.get('/profile');
       setProfile(response.data);
-      setFormData(prev => ({ ...prev, phone: response.data.phone }));
+      setFormData(prev => ({
+        ...prev,
+        full_name: response.data.full_name || '',
+        phone: response.data.phone || '',
+        email: response.data.email || ''
+      }));
     } catch (err) {
       setError('Помилка завантаження профілю');
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleProfileUpdate = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setSaving(true);
+
+    try {
+      const updateData = {};
+      if (formData.full_name !== profile?.full_name) {
+        updateData.full_name = formData.full_name;
+      }
+      if (formData.phone !== profile?.phone) {
+        updateData.phone = formData.phone;
+      }
+      if (formData.email !== profile?.email && formData.email) {
+        updateData.email = formData.email;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        setError('Немає змін для збереження');
+        setSaving(false);
+        return;
+      }
+
+      const response = await api.patch('/profile', updateData);
+      setSuccess('Профіль успішно оновлено');
+      setProfile(prev => ({ ...prev, ...response.data.user }));
+      setIsEditing(false);
+      
+      // Update user in context/localStorage
+      const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      const updatedUser = { ...savedUser, ...response.data.user };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      // Update AuthContext if updateUser function exists
+      if (updateUser) {
+        updateUser(updatedUser);
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || err.response?.data?.errors?.[0]?.msg || 'Помилка оновлення профілю');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setFormData({
+      full_name: profile?.full_name || '',
+      phone: profile?.phone || '',
+      email: profile?.email || '',
+      current_password: '',
+      new_password: '',
+      confirm_password: ''
+    });
+    setError('');
+    setSuccess('');
   };
 
   const handlePhoneUpdate = async (e) => {
@@ -116,35 +184,210 @@ const ProfilePage = () => {
       <main className="max-w-3xl mx-auto px-4 py-8">
         {/* Profile Info Card */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Особиста інформація</h2>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-500">ПІБ</span>
-              <span className="font-medium text-gray-900">{profile?.full_name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Телефон</span>
-              <span className="font-medium text-gray-900">{profile?.phone}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Роль</span>
-              <span className="font-medium text-gray-900">
-                {profile?.role === 'admin' ? 'Адміністратор' : profile?.role === 'owner' ? 'Власник' : 'Орендар'}
-              </span>
-            </div>
-            {profile?.apartment && (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Квартира</span>
-                  <span className="font-medium text-gray-900">№{profile.apartment.number}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Площа</span>
-                  <span className="font-medium text-gray-900">{profile.apartment.area} м²</span>
-                </div>
-              </>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-gray-900">Особиста інформація</h2>
+            {!isEditing ? (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-colors"
+              >
+                <Edit2 className="h-4 w-4" />
+                Редагувати
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCancelEdit}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                  Скасувати
+                </button>
+              </div>
             )}
           </div>
+
+          {error && (
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+              {success}
+            </div>
+          )}
+
+          {isEditing ? (
+            <form onSubmit={handleProfileUpdate} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* ПІБ */}
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                    <User className="h-5 w-5 text-primary-600" />
+                  </div>
+                  <div className="flex-1">
+                    <label htmlFor="full_name" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                      ПІБ *
+                    </label>
+                    <input
+                      type="text"
+                      id="full_name"
+                      required
+                      value={formData.full_name}
+                      onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-base font-semibold text-gray-900"
+                    />
+                  </div>
+                </div>
+
+                {/* Телефон */}
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                    <Phone className="h-5 w-5 text-primary-600" />
+                  </div>
+                  <div className="flex-1">
+                    <label htmlFor="phone" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                      Телефон *
+                    </label>
+                    <input
+                      type="tel"
+                      id="phone"
+                      required
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-base font-semibold text-gray-900"
+                      placeholder="+380501234567"
+                      pattern="\+380\d{9}"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Формат: +380XXXXXXXXX</p>
+                  </div>
+                </div>
+
+                {/* Email (if exists) */}
+                {profile?.email !== undefined && (
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                      <Mail className="h-5 w-5 text-primary-600" />
+                    </div>
+                    <div className="flex-1">
+                      <label htmlFor="email" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        id="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-base font-semibold text-gray-900"
+                        placeholder="email@example.com"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-gray-200">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Save className="h-4 w-4" />
+                  {saving ? 'Збереження...' : 'Зберегти зміни'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* ПІБ */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                  <User className="h-5 w-5 text-primary-600" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                    ПІБ
+                  </label>
+                  <p className="text-base font-semibold text-gray-900">{profile?.full_name}</p>
+                </div>
+              </div>
+
+              {/* Телефон */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                  <Phone className="h-5 w-5 text-primary-600" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                    Телефон
+                  </label>
+                  <p className="text-base font-semibold text-gray-900">{profile?.phone}</p>
+                </div>
+              </div>
+
+              {/* Email (if exists) */}
+              {profile?.email !== undefined && (
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                    <Mail className="h-5 w-5 text-primary-600" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                      Email
+                    </label>
+                    <p className="text-base font-semibold text-gray-900">{profile?.email || 'Не вказано'}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Роль */}
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                  <Shield className="h-5 w-5 text-primary-600" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                    Роль
+                  </label>
+                  <p className="text-base font-semibold text-gray-900">
+                    {profile?.role === 'admin' ? 'Адміністратор' : profile?.role === 'owner' ? 'Власник' : 'Орендар'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Квартира */}
+              {profile?.apartment && (
+                <>
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                      <Home className="h-5 w-5 text-primary-600" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                        Квартира
+                      </label>
+                      <p className="text-base font-semibold text-gray-900">№{profile.apartment.number}</p>
+                    </div>
+                  </div>
+
+                  {/* Площа */}
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-primary-100 flex-shrink-0">
+                      <Square className="h-5 w-5 text-primary-600" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
+                        Площа
+                      </label>
+                      <p className="text-base font-semibold text-gray-900">{profile.apartment.area} м²</p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Tabs */}

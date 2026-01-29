@@ -5,6 +5,7 @@ import NewsCard from '../components/NewsCard';
 import Logo from '../components/Logo';
 import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
+import { Home } from 'lucide-react';
 
 const DashboardPage = () => {
   const { user, logout } = useAuth();
@@ -105,9 +106,14 @@ const DashboardPage = () => {
                     />
                     
                     <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
-                        <h3 className="text-gray-500 text-sm font-medium uppercase tracking-wider mb-4">
-                             Ваша квартира
-                        </h3>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 rounded-lg bg-primary-100">
+                                <Home className="h-5 w-5 text-primary-600" />
+                            </div>
+                            <h3 className="text-gray-500 text-sm font-medium uppercase tracking-wider">
+                                 Ваша квартира
+                            </h3>
+                        </div>
                         <div className="space-y-3">
                             <div className="flex justify-between text-sm">
                                 <span className="text-gray-500">Номер</span>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 
 const InternalAuthContext = createContext(null);
@@ -6,6 +6,12 @@ const InternalAuthContext = createContext(null);
 export const InternalAuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('internal_token');
+    localStorage.removeItem('internal_user');
+    setUser(null);
+  }, []);
 
   useEffect(() => {
     // Check for existing token on load
@@ -18,6 +24,8 @@ export const InternalAuthProvider = ({ children }) => {
         // Verify user is super_admin
         if (parsedUser.role === 'super_admin') {
           setUser(parsedUser);
+          // Note: Token validity will be checked on first API call
+          // If token is invalid, the API interceptor will handle it
         } else {
           logout();
         }
@@ -27,7 +35,7 @@ export const InternalAuthProvider = ({ children }) => {
       }
     }
     setLoading(false);
-  }, []);
+  }, [logout]);
 
   const login = async (login_id, password) => {
     try {
@@ -38,7 +46,7 @@ export const InternalAuthProvider = ({ children }) => {
       if (user.role !== 'super_admin') {
         return { 
           success: false, 
-          error: 'Доступ заборонено. Потрібні права супер-адміністратора' 
+          error: 'Access denied. Super admin privileges required' 
         };
       }
       
@@ -50,22 +58,22 @@ export const InternalAuthProvider = ({ children }) => {
     } catch (error) {
       return { 
         success: false, 
-        error: error.response?.data?.error || 'Помилка входу' 
+        error: error.response?.data?.error || 'Login error' 
       };
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('internal_token');
-    localStorage.removeItem('internal_user');
-    setUser(null);
-  };
-
   return (
     <InternalAuthContext.Provider value={{ user, login, logout, loading }}>
-      {!loading && children}
+      {children}
     </InternalAuthContext.Provider>
   );
 };
 
-export const useInternalAuth = () => useContext(InternalAuthContext);
+export const useInternalAuth = () => {
+  const context = useContext(InternalAuthContext);
+  if (!context) {
+    throw new Error('useInternalAuth must be used within an InternalAuthProvider');
+  }
+  return context;
+};
